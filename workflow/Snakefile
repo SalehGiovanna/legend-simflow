@@ -74,6 +74,7 @@ include: "rules/aux.smk"
 
 make_steps = config.get("make_steps", aggregate.STEPS_ORDERED)
 make_steps = utils.sorted_by(make_steps, aggregate.STEPS_ORDERED)
+config["make_steps"] = make_steps
 
 for step in make_steps:
 

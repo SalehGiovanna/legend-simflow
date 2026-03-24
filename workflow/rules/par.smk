@@ -76,9 +76,7 @@ def smk_hpge_drift_time_map_inputs(wildcards):
 
     _m = Path(config.paths.metadata)
 
-    diode = (
-        _m / f"hardware/detectors/germanium/diodes/{wildcards.hpge_detector}.yaml",
-    )
+    diode = _m / f"hardware/detectors/germanium/diodes/{wildcards.hpge_detector}.yaml"
     crystal = _m / f"hardware/detectors/germanium/crystals/{crystal_name}.yaml"
 
     return {
@@ -195,7 +193,7 @@ def smk_extract_current_pulse_model_inputs(wildcards):
         config, runid=wildcards.runid, hpge_detector=wildcards.hpge_detector
     )
 
-    with evt_idx_file.open() as f:
+    with evt_idx_file.open("w") as f:
         f.write(wf_idx)
 
     return {

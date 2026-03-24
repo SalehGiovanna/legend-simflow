@@ -476,8 +476,11 @@ def process_simlist(
         simid = parts[1].strip()
 
         if tier not in make_steps:
-            msg = f"unknown tier or missing from 'make_steps': {tier!r}"
-            raise NotImplementedError(msg)
+            msg = (
+                "simflow-config.simlist",
+                f"unknown step or missing from 'make_steps': {tier!r}",
+            )
+            raise SimflowConfigError(*msg)
 
         _non_simid_steps = {"vtx", "par"}
         if tier in _non_simid_steps:

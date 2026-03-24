@@ -89,7 +89,7 @@ def snakemake_nersc_cli():
     config["metadata"] = metadata
 
     simlist = config.get("simlist", None)
-    make_steps = config.make_steps
+    make_steps = config.get("make_steps", aggregate.STEPS_ORDERED)
     if simlist is None:
         # auto determine tier from config
         tiers = ("pdf", "cvt", "evt", "hit", "opt", "stp")
