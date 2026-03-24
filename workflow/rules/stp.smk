@@ -150,13 +150,10 @@ rule build_tier_stp:
         geom=patterns.geom_gdml_filename(config, tier="stp"),
         macro=rules.gen_remage_macro.output,
     params:
+        # cmd already embeds N_EVENTS=<value> literally (accounting for the
+        # benchmark override), so Snakemake detects reruns from both
+        # primaries_per_job and benchmark.n_primaries changes via cmd alone.
         cmd=smk_remage_run,
-        # the only simconfig field used in the remage CLI is primaries_per_job
-        # (→ N_EVENTS substitution); all other fields affect the macro content
-        # and are already tracked via input.macro → gen_remage_macro.
-        primaries_per_job=lambda wc: mutils.get_simconfig(
-            config, "stp", simid=wc.simid, field="primaries_per_job"
-        ),
     output:
         patterns.output_simjob_filename(config, tier="stp"),
     log:
