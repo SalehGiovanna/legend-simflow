@@ -47,7 +47,7 @@ for simd in sorted(args.config.paths.benchmarks.glob("*/*")):
         continue
 
     tier = simd.parent.name
-    if tier not in args.config.make_tiers:
+    if tier not in args.config.make_steps:
         continue
 
     config = mutils.get_simconfig(args.config, "stp", simd.name)

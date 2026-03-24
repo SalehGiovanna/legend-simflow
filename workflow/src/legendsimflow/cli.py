@@ -89,11 +89,11 @@ def snakemake_nersc_cli():
     config["metadata"] = metadata
 
     simlist = config.get("simlist", None)
-    make_tiers = config.make_tiers
+    make_steps = config.make_steps
     if simlist is None:
         # auto determine tier from config
         tiers = ("pdf", "cvt", "evt", "hit", "opt", "stp")
-        tier = next(t for t in tiers if t in make_tiers)
+        tier = next(t for t in tiers if t in make_steps)
 
         simlist = [
             f"{tier}.{simid}" for simid in aggregate.gen_list_of_all_simids(config)

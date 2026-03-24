@@ -72,33 +72,33 @@ onstart:
 include: "rules/aux.smk"
 
 
-make_tiers = config.get("make_tiers", aggregate.TIERS_ORDERED)
-make_tiers = utils.sorted_by(make_tiers, aggregate.TIERS_ORDERED)
+make_steps = config.get("make_steps", aggregate.STEPS_ORDERED)
+make_steps = utils.sorted_by(make_steps, aggregate.STEPS_ORDERED)
 
-for tier in make_tiers:
+for step in make_steps:
 
-    include: f"rules/{tier}.smk"
+    include: f"rules/{step}.smk"
 
 
-# strategy: select the latest requested tier (in tiers_ordered),
+# strategy: select the latest requested tier (in steps_ordered),
 # then make the build cumulative by including all tiers up to it.
 def gen_target_all():
     if config.get("simlist", "*") not in ("all", "*"):
-        return aggregate.process_simlist(config, make_tiers=make_tiers)
+        return aggregate.process_simlist(config, make_steps=make_steps)
 
     inputs = []
-    for tier in make_tiers:
-        if tier == "cvt":
+    for step in make_steps:
+        if step == "cvt":
             inputs.extend(rules.gen_all_tier_cvt.input)
-        elif tier == "evt":
+        elif step == "evt":
             inputs.extend(rules.gen_all_tier_evt.input)
-        elif tier == "hit":
+        elif step == "hit":
             inputs.extend(rules.gen_all_tier_hit.input)
-        elif tier == "opt":
+        elif step == "opt":
             inputs.extend(rules.gen_all_tier_opt.input)
-        elif tier == "stp":
+        elif step == "stp":
             inputs.extend(rules.gen_all_tier_stp.input)
-        elif tier == "vtx":
+        elif step in ("vtx", "par"):
             pass
 
     return inputs
@@ -107,8 +107,8 @@ def gen_target_all():
 rule all:
     """Default rule.
 
-    Makes all output files of the highest tier specified in the `make_tiers`
-    configuration variable (holding a list of tiers) and all the simids listed
+    Makes all output files of the highest tier specified in the `make_steps`
+    configuration variable (holding a list of steps) and all the simids listed
     in the `simlist` configuration variable.
     """
     default_target: True

@@ -15,9 +15,10 @@ experiment: l200cfg09
 
 simlist: all
 
-make_tiers:
+make_steps:
   - vtx
   - stp
+  - par
   - opt
   - hit
   - evt

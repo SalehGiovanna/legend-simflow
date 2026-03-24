@@ -28,9 +28,10 @@ Here's a basic description of its fields:
   simulations defined in the metadata.
 - `runlist`: list of LEGEND data taking runs to build pdfs for, in the standard
   format `<experiment>-<period>-<run>-<type>` (e.g. `l200-p03-r000-phy`)
-- `make_tiers`: list the tiers you would like to populate here. This option is
-  useful to speed up the DAG generation and avoid accidentally messing up with
-  other tiers.
+- `make_steps`: list the workflow steps you would like to run here. This option
+  is useful to speed up the DAG generation and avoid accidentally messing up
+  with other steps. Available steps are: `vtx`, `stp`, `par`, `opt`, `hit`,
+  `evt`, `cvt`.
 - `legend_metadata_version`: optionally specify a revision (anything that
   `git checkout` accepts) for the _legend-metadata_ instance used by the
   simflow. If you are _developing_ metadata, comment this option.

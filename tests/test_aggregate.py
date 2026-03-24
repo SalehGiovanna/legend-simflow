@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from dbetto import AttrsDict
 
 from legendsimflow import aggregate as agg
+from legendsimflow.exceptions import SimflowConfigError
 
 
 def test_simid_aggregates(fresh_config):
@@ -50,13 +52,11 @@ def test_process_simlist_is_cumulative(config):
     simid = "birds_nest_K40"
     targets_evt = agg.process_simlist(config, simlist=[f"evt.{simid}"])
 
-    targets_vtx = agg.process_simlist(config, simlist=[f"vtx.{simid}"])
     targets_stp = agg.process_simlist(config, simlist=[f"stp.{simid}"])
     targets_opt = agg.process_simlist(config, simlist=[f"opt.{simid}"])
     targets_hit = agg.process_simlist(config, simlist=[f"hit.{simid}"])
 
     assert targets_evt != []
-    assert set(targets_vtx).issubset(targets_evt)
     assert set(targets_stp).issubset(targets_evt)
     assert set(targets_opt).issubset(targets_evt)
     assert set(targets_hit).issubset(targets_evt)
@@ -73,20 +73,20 @@ def test_process_simlist_is_cumulative(config):
     assert set(targets_evt2).issubset(targets_cvt)
 
 
-def test_process_simlist_is_cumulative_make_tiers(config):
-    make_tiers = ["stp", "evt"]
+def test_process_simlist_is_cumulative_make_steps(config):
+    make_steps = ["stp", "evt"]
     simid = "birds_nest_K40"
     targets_evt = agg.process_simlist(
-        config, simlist=[f"evt.{simid}"], make_tiers=make_tiers
+        config, simlist=[f"evt.{simid}"], make_steps=make_steps
     )
     targets_stp = agg.process_simlist(
-        config, simlist=[f"stp.{simid}"], make_tiers=["stp"]
+        config, simlist=[f"stp.{simid}"], make_steps=["stp"]
     )
     targets_opt = agg.process_simlist(
-        config, simlist=[f"opt.{simid}"], make_tiers=["opt"]
+        config, simlist=[f"opt.{simid}"], make_steps=["opt"]
     )
     targets_hit = agg.process_simlist(
-        config, simlist=[f"hit.{simid}"], make_tiers=["hit"]
+        config, simlist=[f"hit.{simid}"], make_steps=["hit"]
     )
 
     assert targets_evt != []
@@ -94,6 +94,12 @@ def test_process_simlist_is_cumulative_make_tiers(config):
 
     assert not set(targets_opt).issubset(targets_evt)
     assert not set(targets_hit).issubset(targets_evt)
+
+
+@pytest.mark.parametrize("step", ["vtx", "par"])
+def test_process_simlist_rejects_non_simid_steps(config, step):
+    with pytest.raises(SimflowConfigError):
+        agg.process_simlist(config, simlist=[f"{step}.birds_nest_K40"])
 
 
 def test_hpge_harvesting(config):

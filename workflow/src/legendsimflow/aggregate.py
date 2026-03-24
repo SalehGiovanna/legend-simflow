@@ -31,7 +31,7 @@ from .metadata import get_runlist, get_simconfig, runinfo, simpars
 
 log = logging.getLogger(__name__)
 
-TIERS_ORDERED: list[str] = ["vtx", "stp", "opt", "hit", "evt", "cvt"]
+STEPS_ORDERED: list[str] = ["vtx", "stp", "par", "opt", "hit", "evt", "cvt"]
 
 
 def get_simid_njobs(config: SimflowConfig, simid: str) -> int:
@@ -444,18 +444,18 @@ def gen_list_of_all_tier_cvt_outputs(config: SimflowConfig, **kwargs) -> list[Pa
 def process_simlist(
     config: SimflowConfig,
     simlist: Iterable[str] | None = None,
-    make_tiers: Sequence[str] | None = None,
+    make_steps: Sequence[str] | None = None,
 ) -> list[Path]:
     """Produce a list of all output files that refer to a `simlist`.
 
     Each simlist item is ``<tier>.<simid>``. The tier is interpreted as the
     *latest* tier requested for that simid; outputs are produced cumulatively
-    for all tiers up to (and including) that tier in `make_tiers`.
+    for all tiers up to (and including) that tier in `make_steps`.
     """
     if simlist is None:
         simlist = config.simlist
-    if make_tiers is None:
-        make_tiers = TIERS_ORDERED
+    if make_steps is None:
+        make_steps = STEPS_ORDERED
 
     # if it's a list, every item is a simid
     # otherwise, interpret as comma-separated list
@@ -475,15 +475,23 @@ def process_simlist(
         tier = parts[0].strip()
         simid = parts[1].strip()
 
-        if tier not in make_tiers:
-            msg = f"unknown tier or missing from 'make_tiers': {tier!r}"
+        if tier not in make_steps:
+            msg = f"unknown tier or missing from 'make_steps': {tier!r}"
             raise NotImplementedError(msg)
 
+        _non_simid_steps = {"vtx", "par"}
+        if tier in _non_simid_steps:
+            msg = (
+                "simflow-config.simlist",
+                f"step {tier!r} does not produce simid-scoped outputs and cannot be used in the simlist",
+            )
+            raise SimflowConfigError(*msg)
+
         # cumulative: build all tiers up to the requested one
-        for t in make_tiers[: make_tiers.index(tier) + 1]:
+        for t in make_steps[: make_steps.index(tier) + 1]:
             mlist += gen_list_of_plots_outputs(config, t, simid)
 
-            if t == "vtx":
+            if t in ("vtx", "par"):
                 pass
             elif t in ("stp", "opt", "hit", "evt"):
                 mlist += gen_list_of_simid_outputs(config, t, simid)

@@ -35,7 +35,7 @@ rule print_stats:
     """Prints a table with summary runtime information for each `simid`.
 
     Can be run with `snakemake print_stats`. The listed tiers are taken from
-    the Simflow config field `make_tiers`.
+    the Simflow config field `make_steps`.
 
     :::{note}
     The statistics refer to the total job wall time, as measured by Snakemake.

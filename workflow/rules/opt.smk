@@ -13,7 +13,7 @@ rule gen_all_tier_opt:
 
 # NOTE: we don't rely on rules from other tiers here (e.g.
 # rules.build_tiers_stp.output) because we want to support making only the opt
-# tier via the config.make_tiers option
+# tier via the config.make_steps option
 rule build_tier_opt:
     """Produce a `opt` tier file starting from a single `stp` tier file.
 
