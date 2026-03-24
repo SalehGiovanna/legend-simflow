@@ -41,10 +41,14 @@ def remage_run(
 ) -> str:
     """Build a remage CLI invocation string for a given simulation.
 
-    This constructs a shell-escaped command line for remage by first rendering
-    the macro via :func:`make_remage_macro` using the simulation configuration
-    (from ``simconfig.yaml``), and then assembling the remage CLI with the
-    appropriate arguments and macro handling.
+    This constructs a shell-escaped command line for remage. When
+    ``macro_free`` is True, the macro is rendered inline via
+    :func:`make_remage_macro` and its content is passed directly on the CLI.
+    When ``macro_free`` is False (default), the pre-existing macro file path
+    is referenced on the CLI and substitutions are passed via
+    ``--macro-substitutions``; in that case the caller is responsible for
+    generating the macro file beforehand (e.g. via the ``gen_remage_macro``
+    Snakemake rule).
 
     Notes
     -----
@@ -64,7 +68,7 @@ def remage_run(
     - If ``config.runcmd.remage`` is set, it is used to determine the remage
       executable (split with :func:`shlex.split`), otherwise ``remage`` is used.
     - If ``config.nersc.dvs_ro`` is set, remage is set to read all inputs from
-      the read-only filesystem mount ``/dvs/ro`` at NERSC.
+      the read-only filesystem mount ``/dvs_ro`` at NERSC.
     - If ``config.nersc.scratch`` is set, the command will write the output
       file on the scratch disk and move it to the final expected destination at
       the end.
@@ -109,7 +113,8 @@ def remage_run(
     sim_cfg = get_simconfig(config, tier, simid=simid)
 
     # get macro
-    macro_text, _ = make_remage_macro(config, simid, tier=tier, geom=geom)
+    if macro_free:
+        macro_text, _ = make_remage_macro(config, simid, tier=tier, geom=geom)
 
     # need some modifications if this is a benchmark run
     try:

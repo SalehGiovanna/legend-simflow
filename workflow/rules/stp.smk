@@ -84,6 +84,38 @@ rule build_geom_gdml:
         "legend-pygeom-l200 --verbose --config {input} -- {output} &> {log}"
 
 
+rule gen_remage_macro:
+    """Write the remage macro file for a `stp` tier simulation to disk.
+
+    Renders the macro template for the given `simid` using
+    {func}`legendsimflow.commands.make_remage_macro` and writes it to the
+    canonical macro path under ``generated/macros/``.
+
+    Uses wildcard `simid`.
+    """
+    message:
+        "Generating remage macro for stp.{wildcards.simid}"
+    input:
+        geom=patterns.geom_gdml_filename(config, tier="stp"),
+    params:
+        # make this rule dependent on the actual simconfig block it is very
+        # important here to ignore the simconfig fields that, if updated,
+        # should not trigger re-creation of existing files. we ignore then
+        # `number_of_jobs` and `primaries_per_job`. Bonus: we ignore
+        # `geom_config_extra` because that dependency is already tracked by
+        # `input.geom`.
+        _simconfig_hash=lambda wc: mutils.smk_hash_simconfig(
+            config,
+            wc,
+            tier="stp",
+            ignore=["geom_config_extra", "number_of_jobs", "primaries_per_job"],
+        ),
+    output:
+        patterns.input_simjob_filename(config, tier="stp"),
+    run:
+        commands.make_remage_macro(config, wildcards.simid, tier="stp", geom=input.geom)
+
+
 def smk_remage_run(wildcards, input, output, threads):
     """Generate the remage command line for use in Snakemake rules."""
     return commands.remage_run(
@@ -94,7 +126,7 @@ def smk_remage_run(wildcards, input, output, threads):
         geom=input.geom,
         output=output,
         procs=threads,
-        macro_free=True,
+        macro_free=False,
     )
 
 
@@ -116,24 +148,13 @@ rule build_tier_stp:
     input:
         verfile=lambda wc: patterns.vtx_filename_for_stp(config, wc.simid),
         geom=patterns.geom_gdml_filename(config, tier="stp"),
+        macro=rules.gen_remage_macro.output,
     params:
+        # cmd already embeds N_EVENTS=<value> literally (accounting for the
+        # benchmark override), so Snakemake detects reruns from both
+        # primaries_per_job and benchmark.n_primaries changes via cmd alone.
         cmd=smk_remage_run,
-        # make this rule dependent on the actual simconfig block it is very
-        # important here to ignore the simconfig fields that, if updated,
-        # should not trigger re-creation of existing files. we ignore then
-        # `number_of_jobs` and in the future we could also ignore
-        # `primaries_per_job`, such that Snakemake will keep the existing stp
-        # files with a different number of primaries on disk. Bonus: we ignore
-        # `geom_config_extra` because that dependency is already tracked by
-        # `input.geom`.
-        _simconfig_hash=lambda wc: mutils.smk_hash_simconfig(
-            config,
-            wc,
-            tier="stp",
-            ignore=["geom_config_extra", "number_of_jobs"],
-        ),
     output:
-        # TODO: protected()
         patterns.output_simjob_filename(config, tier="stp"),
     log:
         patterns.log_filename(config, tier="stp"),

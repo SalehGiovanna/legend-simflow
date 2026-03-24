@@ -106,7 +106,7 @@ def smk_hash_simconfig(
     tier = kwargs["tier"] if "tier" in kwargs else wildcards.tier  # noqa: SIM401
     simid = kwargs["simid"] if "simid" in kwargs else wildcards.simid  # noqa: SIM401
 
-    scfg = get_simconfig(config, tier, simid)
+    scfg = get_simconfig(config, tier, simid).copy()
 
     if field is not None:
         scfg = scfg.get(field)

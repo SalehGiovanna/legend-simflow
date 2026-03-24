@@ -30,7 +30,7 @@ def test_make_macro(config):
     assert (
         fmac
         == Path(config.paths.macros)
-        / f"stp/{config.experiment}-birds_nest_K40-tier_stp.mac"
+        / f"{config.experiment}-birds_nest_K40-tier_stp.mac"
     )
     assert fmac.is_file()
 

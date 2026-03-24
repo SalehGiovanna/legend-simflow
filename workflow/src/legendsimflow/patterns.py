@@ -125,7 +125,7 @@ def input_simjob_filename(config: SimflowConfig, **kwargs) -> Path:
 
     ext = ".mac" if tier == "stp" else ".lh5"
     fname = config.experiment + "-{simid}" + f"-tier_{tier}" + ext
-    return _expand(config.paths.macros / f"{tier}" / fname, **kwargs)
+    return _expand(config.paths.macros / fname, **kwargs)
 
 
 def output_simjob_filename(config: SimflowConfig, **kwargs) -> Path:
