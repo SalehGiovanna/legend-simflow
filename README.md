@@ -4,7 +4,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/legend-simflow?logo=pypi)](https://pypi.org/project/legend-simflow/)
 ![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/legend-exp/legend-simflow?logo=git)
-[![GitHub Workflow Status](https://img.shields.io/github/checks-status/legend-exp/legend-simflow/main?label=main%20branch&logo=github)](https://github.com/legend-exp/pygama/actions)
+[![GitHub Workflow Status](https://img.shields.io/github/checks-status/legend-exp/legend-simflow/main?label=main%20branch&logo=github)](https://github.com/legend-exp/legend-simflow/actions)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 [![Codecov](https://img.shields.io/codecov/c/github/legend-exp/legend-simflow?logo=codecov)](https://app.codecov.io/gh/legend-exp/legend-simflow)
 [![Read the Docs](https://img.shields.io/readthedocs/legend-simflow?logo=readthedocs)](https://legend-simflow.readthedocs.io)
