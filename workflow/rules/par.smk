@@ -59,7 +59,7 @@ rule make_simstat_partition_file:
         runinfo=config.metadata.datasets.runinfo,
         runlist=lambda wc: aggregate.get_runlist(config, wc.simid),
     output:
-        config.paths.pars / "simstat" / "partitions_{simid}.yaml",
+        patterns.simstat_part_filename(config),
     log:
         patterns.log_simstat_part_filename(config),
     script:

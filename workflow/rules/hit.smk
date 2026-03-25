@@ -50,7 +50,7 @@ rule build_tier_hit:
         hpge_psdcuts=lambda wc: aggregate.gen_list_of_psdcuts(config, wc.simid),
         # NOTE: technically this rule only depends on one block in the
         # partitioning file, but in practice the full file will always change
-        simstat_part_file=config.paths.pars / "simstat" / "partitions_{simid}.yaml",
+        simstat_part_file=patterns.simstat_part_filename(config),
         detector_usabilities=rules.cache_detector_usabilities.output,
     output:
         patterns.output_simjob_filename(config, tier="hit"),

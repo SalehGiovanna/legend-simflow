@@ -312,6 +312,12 @@ def output_psdcuts_filename(config: SimflowConfig, **kwargs) -> Path:
 # hit tier
 
 
+def simstat_part_filename(config: SimflowConfig, **kwargs) -> Path:
+    """Return the path to the simulation event statistics partitioning file."""
+    pat = config.paths.pars / "simstat" / "partitions_{simid}.yaml"
+    return _expand(pat, **kwargs)
+
+
 def log_simstat_part_filename(config: SimflowConfig, **kwargs) -> Path:
     pat = log_dirname(config) / "simstat" / "{simid}-simstat-partition.log"
     return _expand(pat, **kwargs)
