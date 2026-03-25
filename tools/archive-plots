@@ -20,10 +20,19 @@ echo "Archiving into $output..."
 
 cd "$cycle/generated"
 
-# shellcheck disable=SC2046
+plots_list="$(mktemp)"
+trap 'rm -f "$plots_list"' EXIT
+
+find . -type d -name plots -print0 > "$plots_list"
+
+if [[ ! -s "$plots_list" ]]; then
+    echo "Error: no 'plots' directories found under '$cycle/generated'; not creating archive." >&2
+    exit 1
+fi
+
 tar --xz --verbose --create \
     --file "$output" \
     --transform "s|^\./||;s|^|$(basename "$cycle")-plots/|" \
-    $(find . -type d -name plots)
+    --null --files-from "$plots_list"
 
 echo "Done!"

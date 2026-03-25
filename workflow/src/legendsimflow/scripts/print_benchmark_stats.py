@@ -85,6 +85,7 @@ for simd in sorted(logdir.glob("*/*")):
     evts_1h = "..."
     njobs = "..."
     evts_1h_round = "..."
+    njobs_round = "..."
 
     for jobd in simd.glob("*.log"):
         with jobd.open("r", encoding="utf-8") as f:
