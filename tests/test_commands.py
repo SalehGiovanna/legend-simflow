@@ -48,7 +48,7 @@ def test_make_macro(config):
 
     confine = [
         "/RMG/Generator/Confine Volume",
-        "/RMG/Generator/Confinement/Physical/AddVolume pen.*",
+        "/RMG/Generator/Confinement/Physical/AddVolume hpge_assembly_plate_pen.*",
     ]
     assert set(confine).issubset(text.split("\n"))
     assert "/RMG/Generator/Confinement/SampleOnSurface" not in text
@@ -58,8 +58,8 @@ def test_make_macro(config):
     )
     confine = [
         "/RMG/Generator/Confine Volume",
-        "/RMG/Generator/Confinement/Physical/AddVolume phbr_spring.*",
-        "/RMG/Generator/Confinement/Physical/AddVolume phbr_washer.*",
+        "/RMG/Generator/Confinement/Physical/AddVolume hpge_assembly_phbr_spring.*",
+        "/RMG/Generator/Confinement/Physical/AddVolume hpge_assembly_phbr_washer.*",
         "/RMG/Generator/Confinement/SampleOnSurface true",
         "/RMG/Generator/Confinement/SurfaceSampleMaxIntersections 100",
     ]

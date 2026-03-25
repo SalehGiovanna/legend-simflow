@@ -133,6 +133,7 @@ def smk_hash_simconfig(
 
 
 def extract_integer(file_path: Path) -> int:
+    """Read a single integer from a file, stripping surrounding whitespace."""
     with file_path.open() as f:
         return int(f.read().strip())
 
@@ -302,6 +303,16 @@ def get_vtx_simconfig(config: SimflowConfig, simid: str) -> AttrsDict:
 
 
 def get_sanitized_fccd(metadata: LegendMetadata, det_name: str) -> float:
+    """Return the FCCD value for `det_name`, falling back to 1 mm if metadata is missing.
+
+    Parameters
+    ----------
+    metadata
+        LEGEND metadata database.
+    det_name
+        Detector name.
+
+    """
     det_meta = metadata.hardware.detectors.germanium.diodes[det_name]
 
     has_fccd_meta = validate_dict_schema(

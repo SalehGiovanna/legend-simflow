@@ -28,20 +28,23 @@ The test suite consists of Python tests (managed with
 [pytest](https://pytest.org)) and Julia tests. Run the full suite with:
 
 ```console
-> pixi run test
+> pixi run -e test test
 ```
 
 To run only the Python tests:
 
 ```console
-> pixi run test-python
+> pixi run -e test test-python
 ```
 
 To run only the Julia tests:
 
 ```console
-> pixi run test-julia
+> pixi run -e test test-julia
 ```
+
+::: note The tests should be run in the pixi "test" environment to have access
+to all test dependencies! :::
 
 To run a specific Python test or test function:
 

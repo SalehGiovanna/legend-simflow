@@ -1,6 +1,6 @@
 birds_nest:
   - /RMG/Generator/Confine Volume
-  - /RMG/Generator/Confinement/Physical/AddVolume top_plate
+  - /RMG/Generator/Confinement/Physical/AddVolume birds_nest_plate_copper
 
 pen_plates:
   - /RMG/Generator/Confine Volume

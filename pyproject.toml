@@ -208,6 +208,9 @@ log_cli_level = "INFO"
 testpaths = [
   "tests",
 ]
+markers = [
+    "needs_remage: tests that require a remage installation",
+]
 
 [tool.ruff]
 src = ["workflow/src"]

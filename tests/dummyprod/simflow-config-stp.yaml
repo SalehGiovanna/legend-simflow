@@ -1,0 +1,40 @@
+experiment: l200p02
+
+runlist:
+  - l200-p03-r000-phy
+
+benchmark:
+  enabled: true
+  n_primaries:
+    stp: 1000
+
+make_steps:
+  - vtx
+  - stp
+paths:
+  generated: $_/generated
+  benchmarks: $_/generated/benchmarks
+  log: $_/generated/log
+
+  metadata: $_/inputs
+  config: $_/inputs/simprod/config
+  optical_maps:
+    fiber: $_/inputs/simprod/l200a-optical-map-fiber.lh5
+    lar: $_/inputs/simprod/l200a-optical-map-lar.lh5
+    pen: $_/inputs/simprod/l200a-optical-map-pen.lh5
+
+  pars: $_/generated/pars
+  macros: $_/generated/macros
+  tier:
+    vtx: ./generated/tier/vtx
+    stp: ./generated/tier/stp
+    opt: ./generated/tier/opt
+    hit: ./generated/tier/hit
+    evt: $_/generated/tier/evt
+    cvt: $_/generated/tier/cvt
+    pdf: $_/generated/tier/pdf
+  pdf_releases: $_/generated/releases
+
+nersc:
+  dvs_ro: false
+  scratch: false
