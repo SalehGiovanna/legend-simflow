@@ -26,7 +26,7 @@ simulations (a "simlist"):
 
 where `mylist.txt` is a text file in the format:
 
-```
+```text
 stp.fibers_Ra224_to_Pb208
 hit.hpge_bulk_2vbb
 ...
@@ -35,7 +35,7 @@ hit.hpge_bulk_2vbb
 One can even just directly pass a comma-separated list:
 
 ```console
-> snakemake --config simlist="stp.fibers_Ra224_to_Pb208,hit.hpge_bulk_2vbb
+> snakemake --config simlist="stp.fibers_Ra224_to_Pb208,hit.hpge_bulk_2vbb"
 ```
 
 Remember that Snakemake accepts individual output file paths as arguments. If
@@ -115,34 +115,107 @@ previous run and have not changed.
 
 ## Benchmarking runs
 
-This workflow implements the possibility to run special "benchmarking" runs in
-order to evaluate the speed of simulations, for tuning the number of events to
-simulate for each simulation run.
+Benchmarking runs measure the simulation speed for each `simid` and produce
+suggested `primaries_per_job` and `number_of_jobs` values targeting a ~1-hour
+wall time per job and at least 10^7 total events per simid.
 
-1. Create a new, dedicated production cycle (see above)
-2. Enable benchmarking in the configuration file and customize further settings
-3. Start the production as usual.
+### Setup
 
-Snakemake will spawn a single job (with the number of primary events specified
-in the configuration file) for each simulation. Once the production is over, the
-results can be summarized via the `print_benchmark_stats` rule:
+Create a dedicated production cycle (separate directory) and enable benchmark
+mode in the configuration file:
 
-```console
-> snakemake print_benchmark_stats
-simid                                runtime [sec]  speed (hot loop) [ev/sec]  evts / 1h  jobs (1h) / 10^8 evts
------                                -------------  -------------------------  ---------  ---------------------
-stp.sis1_z8430_slot2_Bi212_to_Pb208          139.0                     717.70    2583720                     38
-stp.sis1_z8580_slot2_Pb214_to_Po214          167.0                     596.99    2149164                     46
-stp.sis1_z8630_slot2_Bi212_to_Pb208          135.0                     740.46    2665656                     37
-...                                            ...                        ...        ...                    ...
+```{code-block} yaml
+:caption: simflow-config.yaml
+
+benchmark:
+  enabled: true
+  n_primaries:
+    stp: 10_000   # primaries per benchmark job — enough to get a stable speed estimate
+
+make_steps:
+  - stp           # only the remage step is needed for benchmarking
 ```
 
-Which computes statistics by inspecting the `stp`-tier (_remage_) logs.
+The `n_primaries` value controls how many events each benchmark job simulates.
+It should be large enough for the remage statistics to stabilize, but small
+enough that the job finishes quickly (typically a few minutes). The default
+value of 10 000 is a reasonable starting point.
+
+### Running
+
+Run the production as usual. Snakemake will spawn exactly one job per `simid`:
+
+```console
+> snakemake --workflow-profile workflow/profiles/<profile-name>
+```
+
+### Inspecting results
+
+Once all benchmark jobs have completed, summarize the results:
+
+```console
+> snakemake -q all print_benchmark_stats
+simid                                               runtime [sec]  speed (hot loop) [ev/sec]  evts / 1h  ...rounded  jobs (1h) / 10^8 evts  ...rounded
+-----                                               -------------  -------------------------  ---------  ----------  ---------------------  ----------
+stp.sis1_z8430_slot2_Bi212_to_Pb208                        139.0                     717.70    2583720     2500000                     38          40
+stp.sis1_z8580_slot2_Pb214_to_Po214                        167.0                     596.99    2149164     2000000                     46          50
+stp.sis1_z8630_slot2_Bi212_to_Pb208                        135.0                     740.46    2665656     2500000                     37          40
+...                                                           ...                        ...        ...         ...                    ...         ...
+```
+
+The columns are:
+
+- **`runtime [sec]`** — wall time of the benchmark job as reported by _remage_.
+- **`speed (hot loop) [ev/sec]`** — average simulation throughput from the
+  _remage_ event-loop statistics (averaged over threads if multithreaded).
+- **`evts / 1h`** — exact number of events that would be produced in one hour at
+  the measured speed.
+- **`...rounded`** — same value rounded down to two significant figures with
+  half-integer steps (e.g. 2 583 720 → 2 500 000). This is the suggested
+  `primaries_per_job` value.
+- **`jobs (1h) / 10^8 evts`** — exact number of 1-hour jobs needed to reach 10^8
+  total events.
+- **`...rounded`** — same, computed from the rounded `primaries_per_job`.
 
 :::{note}
 
-The benchmarking statistics refer exclusively to the hot Geant4 simulation loop.
-Overheads such as application initialization or remage built-in post processing
-are not taken into account.
+The speed is extracted from _remage_'s hot Geant4 simulation loop only.
+Overheads such as application initialization or _remage_ built-in
+post-processing are not included.
+
+:::
+
+### Applying the results
+
+After printing the table, the rule also writes an updated simconfig to
+`generated/benchmarks/generated-simconfig.yaml`. This file is a copy of the
+source `simconfig.yaml` with `primaries_per_job` and `number_of_jobs` patched
+for every simid that has benchmark results:
+
+- `primaries_per_job` is set to the rounded events-per-hour value (suggested ~1
+  h per job).
+- `number_of_jobs` is computed with ceiling division so that
+  `primaries_per_job * number_of_jobs >= 10^7`, and is always at least 1.
+
+YAML anchors, aliases, merge keys, and comments from the original
+`simconfig.yaml` are preserved.
+
+To apply the suggested values, inspect the generated file and, if satisfied,
+copy it over the source:
+
+```console
+> diff generated/benchmarks/generated-simconfig.yaml \
+       inputs/simprod/config/tier/stp/<experiment>/simconfig.yaml
+> cp  generated/benchmarks/generated-simconfig.yaml \
+      inputs/simprod/config/tier/stp/<experiment>/simconfig.yaml
+```
+
+:::{note}
+
+Simids defined via YAML merge keys (`<<:`) inherit `primaries_per_job` and
+`number_of_jobs` from their anchor. If the benchmarked simid is the
+anchor-defining entry, the updated values will propagate to all aliases. If only
+the alias entry is benchmarked, an explicit override is added to that entry
+only.
 
 :::
