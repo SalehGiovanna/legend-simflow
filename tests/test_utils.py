@@ -7,6 +7,7 @@ import dbetto
 import numpy as np
 import pytest
 from dbetto import AttrsDict
+from legendmeta import LegendMetadata
 from lgdo import Array, Table, lh5
 
 from legendsimflow import hpge_pars, utils
@@ -137,6 +138,37 @@ def test_setup_logdir_link():
         assert link.exists()
         assert link.is_symlink()
         assert link.readlink() == Path(new_proctime)
+
+
+def test_init_simflow_context_returns_initialized_config(config):
+    """Ensure init_simflow_context returns pre-initialized configs unchanged."""
+    context = utils.init_simflow_context(config, workflow=None)
+    assert context.config is config
+
+
+def test_init_simflow_context_loads_from_path(tmp_path, legend_testdata):
+    metadata_path = Path(legend_testdata["legend/metadata"]).resolve()
+    pars_path = (tmp_path / "pars").resolve()
+
+    raw_config = {
+        "paths": {
+            "metadata": str(metadata_path),
+            "pars": str(pars_path),
+        }
+    }
+
+    config_path = tmp_path / "simflow-config.yaml"
+    dbetto.utils.write_dict(raw_config, str(config_path))
+
+    context = utils.init_simflow_context(config_path, workflow=None)
+    config = context.config
+    assert isinstance(config, AttrsDict)
+    assert isinstance(config.metadata, LegendMetadata)
+    assert config.paths.metadata == metadata_path
+    assert config.paths.pars == pars_path
+    assert config.paths.geom == pars_path / "geom"
+    assert config.paths.dtmaps == pars_path / "hpge/dtmaps"
+    assert config._proctime
 
 
 def test_hash_dict():

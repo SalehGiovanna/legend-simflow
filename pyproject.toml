@@ -69,6 +69,7 @@ dependencies = [
     "revertex >=0.1.2",
     "ruamel.yaml",
     "snakemake >=9.19,<9.20",
+    "snakemake-argparse-bridge >=0.2.0",
     "snakemake-storage-plugin-fs",
     "snakemake-executor-plugin-slurm",
     "snakemake-logger-plugin-rich",
@@ -125,6 +126,7 @@ psutil = "*"
 
 # execution
 snakemake = ">=9.19,<9.20"
+# snakemake-argparse-bridge = "..."  # not on conda-forge
 snakemake-storage-plugin-fs = "*"
 snakemake-executor-plugin-slurm = "*"
 # snakemake-logger-plugin-rich = "..."  # not on conda-forge
@@ -155,6 +157,8 @@ test = { features = ["test"], solve-group = "default" }
 snakemake = { cmd = "snakemake", depends-on = ["precompile"] }
 dry = { cmd = "snakemake --dry-run" }
 touch = { cmd = "snakemake --touch" }
+
+tier-cvt = { cmd = "python -m legendsimflow.scripts.tier.cvt" }
 
 [tool.pixi.tasks.prod]
 cmd = "snakemake --verbose --logger {{ logger }} --workflow-profile workflow/profiles/{{ profile }}"
