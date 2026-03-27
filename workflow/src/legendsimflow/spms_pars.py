@@ -99,10 +99,6 @@ def get_chunk_rc_data(
     rc_evt_files: list[str | Path],
     rc_file_state: dict,
     chunk_size: int,
-    evt_tier_name: str,
-    hit_tier_name: str,
-    sipm: str,
-    sipm_uid: int,
     rc_index_lookup: dict[str, dict[str, np.ndarray]],
 ) -> ak.Array:
     """Assemble random-coincidence data for one chunk.
@@ -117,14 +113,6 @@ def get_chunk_rc_data(
         ``counts``, ``carryover``).
     chunk_size
         Number of random-coincidence events requested for the current chunk.
-    evt_tier_name
-        Tier name of the evt file path.
-    hit_tier_name
-        Tier name used to derive the hit file path from the evt file path.
-    sipm
-        SiPM channel name. Use ``"all"`` for the summed SiPM stream.
-    sipm_uid
-        SiPM channel UID used when selecting a specific channel.
     rc_index_lookup
         Precomputed mapping from evt file to trigger-event indices,
         built with ``build_rc_evt_index_lookup``.
@@ -167,11 +155,6 @@ def get_chunk_rc_data(
         n_missing = chunk_size - total_rc_events
         part = get_rc_library(
             rc_evt_file,
-            evt_tier_name,
-            evt_tier_name,
-            hit_tier_name,
-            sipm,
-            sipm_uid,
             rc_index_lookup,
         )
         if len(part) == 0:
@@ -319,10 +302,6 @@ def get_rc_evt_mask(evt_file: str | Path) -> tuple[ak.Array, ak.Array]:
 
 def get_rc_library(
     evt_file: str | Path,
-    evt_tier_name: str,
-    hit_tier_name: str,
-    sipm: str,
-    sipm_uid: int,
     rc_index_lookup: dict[str, dict[str, np.ndarray]],
     time_domain_ns: tuple[float, float] = (-1_000, 5_000),
     min_sep_ns: float = 6_000,
@@ -349,15 +328,6 @@ def get_rc_library(
     ----------
     evt_file
         Event tier data file.
-    evt_tier_name
-        Tier name of the evt file path.
-    hit_tier_name
-        Tier name used to derive the hit file path from the evt file path.
-    sipm
-        SiPM channel name to extract data for. If "all", flatten channel
-        dimension.
-    sipm_uid
-        SiPM channel ID to extract data for.
     rc_index_lookup
         Precomputed mapping from evt file to trigger-event indices,
         built with ``build_rc_evt_index_lookup``.
@@ -412,71 +382,23 @@ def get_rc_library(
     n_forced_pulser = len(idx_fp)
     n_geds = len(idx_getrg)
 
-    if sipm == "all":
-        with perf_block("ftlib_read_evt_spms()"):
-            evt = lh5.read(
-                "evt",
-                evt_file,
-                field_mask=[
-                    "spms/energy",
-                    "spms/t0",
-                ],
-            ).view_as("ak")
+    with perf_block("ftlib_read_evt_spms()"):
+        evt = lh5.read(
+            "evt",
+            evt_file,
+            field_mask=[
+                "spms/energy",
+                "spms/t0",
+            ],
+        ).view_as("ak")
 
-            spms_fp = evt.spms[idx_fp]
-            time_fp = ak.flatten(spms_fp.t0, axis=-1)
-            energy_fp = ak.flatten(spms_fp.energy, axis=-1)
+        spms_fp = evt.spms[idx_fp]
+        time_fp = ak.flatten(spms_fp.t0, axis=-1)
+        energy_fp = ak.flatten(spms_fp.energy, axis=-1)
 
-            spms_getrg = evt.spms[idx_getrg]
-            time_getrg = ak.flatten(spms_getrg.t0, axis=-1)
-            energy_getrg = ak.flatten(spms_getrg.energy, axis=-1)
-
-    else:
-        tcm_file = Path(str(evt_file).replace(evt_tier_name, "tcm"))
-        hit_file = Path(str(evt_file).replace(evt_tier_name, hit_tier_name))
-
-        with perf_block("ftlib_read_hit_table()"):
-            data_ch = lh5.read_as(
-                f"ch{sipm_uid}/hit/",
-                hit_file,
-                "ak",
-                field_mask=["trigger_pos", "energy_in_pe", "is_valid_hit"],
-            )
-
-        with perf_block("ftlib_read_tcm_tables()"):
-            idx_union = np.unique(np.concatenate((idx_fp, idx_getrg)))
-            tcm_all = lh5.read_as(
-                "hardware_tcm_1",
-                tcm_file,
-                "ak",
-                idx=idx_union,
-                field_mask=["table_key", "row_in_table"],
-            )
-            tcm_fp = tcm_all[np.searchsorted(idx_union, idx_fp)]
-            tcm_getrg = tcm_all[np.searchsorted(idx_union, idx_getrg)]
-
-        with perf_block("ftlib_extract_channel_rows()"):
-            mask = tcm_fp.table_key == sipm_uid
-            rows = ak.flatten(tcm_fp.row_in_table[mask]).to_numpy()
-
-            if len(rows) > 0:
-                data_ch_fp = data_ch[rows]
-                time_fp = data_ch_fp.trigger_pos[data_ch_fp.is_valid_hit]
-                energy_fp = data_ch_fp.energy_in_pe[data_ch_fp.is_valid_hit]
-            else:
-                time_fp = ak.Array([])
-                energy_fp = ak.Array([])
-
-            mask = tcm_getrg.table_key == sipm_uid
-            rows = ak.flatten(tcm_getrg.row_in_table[mask]).to_numpy()
-
-            if len(rows) > 0:
-                data_ch_getrg = data_ch[rows]
-                time_getrg = data_ch_getrg.trigger_pos[data_ch_getrg.is_valid_hit]
-                energy_getrg = data_ch_getrg.energy_in_pe[data_ch_getrg.is_valid_hit]
-            else:
-                time_getrg = ak.Array([])
-                energy_getrg = ak.Array([])
+        spms_getrg = evt.spms[idx_getrg]
+        time_getrg = ak.flatten(spms_getrg.t0, axis=-1)
+        energy_getrg = ak.flatten(spms_getrg.energy, axis=-1)
 
     if len(time_fp) > 0:
         with perf_block("ftlib_process_windows()"):
