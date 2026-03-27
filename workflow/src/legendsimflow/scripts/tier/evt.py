@@ -20,6 +20,7 @@ import awkward as ak
 import legenddataflowscripts as ldfs
 import legenddataflowscripts.utils
 import numpy as np
+from dbetto import AttrsDict
 from dbetto.utils import load_dict
 from lgdo import Array, Table, VectorOfVectors, lh5
 
@@ -53,6 +54,7 @@ metadata = args.config.metadata
 simstat_part_file = args.input.simstat_part_file
 add_random_coincidences = args.params.add_random_coincidences
 l200data = args.config.paths.l200data
+usabilities = AttrsDict(load_dict(args.input.detector_usabilities[0]))
 
 evt_file, move2cfs = nersc.make_on_scratch(args.config, evt_file)
 
@@ -163,6 +165,15 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
     evt_start, evt_end = evt_idx_range
     # evt_idx_range is [start, end] inclusive
     n_entries = evt_end - evt_start + 1
+
+    # canonical non-OFF SiPM channel UIDs for this run, in ascending order.
+    # used to pad events with no SiPM photons so rawid/energy/time always
+    # carry the full channel dimension (empty arrays for inactive channels)
+    canonical_spms_uids = sorted(
+        uid
+        for det_name, uid in det2uid["opt"].items()
+        if usabilities[runid].get(det_name, "on") != "off"
+    )
 
     if add_random_coincidences:
         msg = "looking up forced trigger files for random coincidences"
@@ -283,29 +294,46 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
         # we also discard all pulses with amplitude below threshold
         pesel = energy > SPMS_ENERGY_THR_PE
 
-        out_table.add_field("spms/energy", VectorOfVectors(energy[pesel][chansel]))
+        # in simulation the opt TCM only records channels that detected
+        # photons, so events with no SiPM activity have empty arrays.
+        # pad those events with the canonical non-OFF channel list (empty
+        # PE arrays) to match the real-data convention where all non-OFF
+        # channels are always present.
+        # NOTE: the canonical_spms_uids ordering must match the ordering
+        # used by non-empty events (i.e. the TCM ordering). Currently both
+        # are ascending by UID. The implicit assumption for RC data (added
+        # below) is that RC evt files come from runs whose usability map
+        # matches the current run partition.
+        n_events = len(unified_tcm)
+        is_empty_opt = ak.num(tcm["opt"].table_key) == 0
+        canonical_broadcast = ak.Array([canonical_spms_uids] * n_events)
+
+        rawid = tcm["opt"].table_key[chansel]
+        rawid = ak.where(is_empty_opt, canonical_broadcast, rawid)
+        out_table.add_field("spms/rawid", VectorOfVectors(rawid))
+
+        energy_sel = energy[pesel][chansel]
+        empty_energy = ak.Array([[[] for _ in canonical_spms_uids]] * n_events)
+        energy_sel = ak.where(is_empty_opt, empty_energy, energy_sel)
+        out_table.add_field("spms/energy", VectorOfVectors(energy_sel))
 
         is_saturated = _read_hits(tcm, "opt", "is_saturated")
-        out_table.add_field("spms/is_saturated", VectorOfVectors(is_saturated[chansel]))
+        is_saturated_sel = is_saturated[chansel]
+        empty_is_saturated = ak.Array([[False for _ in canonical_spms_uids]] * n_events)
+        is_saturated_sel = ak.where(is_empty_opt, empty_is_saturated, is_saturated_sel)
+        out_table.add_field("spms/is_saturated", VectorOfVectors(is_saturated_sel))
 
-        # fields to identify detectors and lookup stuff in the lower tiers
-        # NOTE: chansel depends only on usability (not on whether PEs were
-        # detected), so all non-OFF channels are always present in rawid with
-        # empty energy/time lists for channels that had no hits.  This means
-        # rawid is identical for every event within a given run partition.
-        # RC data (added below) must follow the same convention; the assertion
-        # there checks this.  The implicit assumption is that RC evt files come
-        # from runs whose usability map matches the current run partition.
-        out_table.add_field(
-            "spms/rawid", VectorOfVectors(tcm["opt"].table_key[chansel])
-        )
-        out_table.add_field(
-            "spms/hit_idx", VectorOfVectors(tcm["opt"].row_in_table[chansel])
-        )
+        hit_idx = tcm["opt"].row_in_table[chansel]
+        empty_hit_idx = ak.Array([[-1 for _ in canonical_spms_uids]] * n_events)
+        hit_idx = ak.where(is_empty_opt, empty_hit_idx, hit_idx)
+        out_table.add_field("spms/hit_idx", VectorOfVectors(hit_idx))
 
         time = _read_hits(tcm, "opt", "time")
+        time_sel = time[pesel][chansel]
+        empty_time = ak.Array([[[] for _ in canonical_spms_uids]] * n_events)
+        time_sel = ak.where(is_empty_opt, empty_time, time_sel)
         out_table.add_field(
-            "spms/time", VectorOfVectors(time[pesel][chansel], attrs={"units": "ns"})
+            "spms/time", VectorOfVectors(time_sel, attrs={"units": "ns"})
         )
 
         if add_random_coincidences:
@@ -317,17 +345,12 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
                     rc_index_lookup,
                 )
             # assert rawid alignment: RC and simulation must use the same
-            # channel ordering (see comment on spms/rawid above).
-            # rawid is identical for every event within a run, so checking
-            # the first RC event against the first simulation event suffices.
-            rawid_sim = ak.to_list(tcm["opt"].table_key[chansel][0])
-            if ak.to_list(rc_chunk.rawid[0]) != rawid_sim:
-                msg = (
-                    "RC rawid does not match simulation spms/rawid — "
-                    "check that RC evt files come from a run with the same "
-                    "usability map as the current run partition"
-                )
-                raise ValueError(msg)
+            # channel ordering (both are ascending by UID)
+            assert ak.to_list(rc_chunk.rawid[0]) == canonical_spms_uids, (
+                "RC rawid does not match simulation spms/rawid — "
+                "check that RC evt files come from a run with the same "
+                "usability map as the current run partition"
+            )
             out_table.add_field("spms/rc_energy", VectorOfVectors(rc_chunk.npe))
             out_table.add_field(
                 "spms/rc_time", VectorOfVectors(rc_chunk.t0, attrs={"units": "ns"})

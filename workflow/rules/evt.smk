@@ -36,6 +36,7 @@ rule build_tier_evt:
         opt_file=patterns.output_simjob_filename(config, tier="opt"),
         hit_file=patterns.output_simjob_filename(config, tier="hit"),
         simstat_part_file=patterns.simstat_part_filename(config),
+        detector_usabilities=rules.cache_detector_usabilities.output,
     params:
         add_random_coincidences=False,
     output:
