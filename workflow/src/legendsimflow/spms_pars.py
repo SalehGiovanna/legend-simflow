@@ -321,8 +321,11 @@ def get_rc_library(
     rc_index_lookup: dict[str, dict[str, np.ndarray]],
     time_domain_ns: tuple[float, float] = (-1_000, 5_000),
     min_sep_ns: float = 6_000,
-    ext_trig_range_ns: list[tuple[float, float]] | None = None,
-    ge_trig_range_ns: list[tuple[float, float]] | None = None,
+    ext_trig_range_ns: tuple[tuple[float, float], ...] = (
+        (1_000, 44_000),
+        (55_000, 100_000),
+    ),
+    ge_trig_range_ns: tuple[tuple[float, float], ...] = ((1_000, 44_000),),
 ) -> ak.Array:
     """Extract a library of random-coincidence (RC) events from an evt file.
 
@@ -341,9 +344,9 @@ def get_rc_library(
     contaminating RC events with physics signal:
 
     - Forced/pulser triggers: full waveform outside the central trigger window,
-      ``[(1_000, 44_000), (55_000, 100_000)]`` ns by default.
-    - HPGe/LAr triggers: first half only (before the trigger), ``[(1_000,
-      44_000)]`` ns by default.
+      ``((1_000, 44_000), (55_000, 100_000))`` ns by default.
+    - HPGe/LAr triggers: first half only (before the trigger), ``((1_000,
+      44_000),)`` ns by default.
 
     Both categories are filtered to exclude muon coincidences.
 
@@ -362,12 +365,12 @@ def get_rc_library(
         Minimal separation time between two windows in a trace, in nanoseconds.
         Default 6000.
     ext_trig_range_ns
-        Window ranges for forced/pulser trigger events, as list of (start, end)
-        tuples in nanoseconds. Default: ``[(1_000, 44_000), (55_000,
-        100_000)]``.
+        Window ranges for forced/pulser trigger events, as tuple of (start,
+        end) pairs in nanoseconds. Default: ``((1_000, 44_000), (55_000,
+        100_000))``.
     ge_trig_range_ns
-        Window ranges for HPGe/LAr trigger events, as list of (start, end)
-        tuples in nanoseconds.  Default: ``[(1_000, 44_000)]``.
+        Window ranges for HPGe/LAr trigger events, as tuple of (start, end)
+        pairs in nanoseconds.  Default: ``((1_000, 44_000),)``.
 
     Returns
     -------
@@ -379,29 +382,9 @@ def get_rc_library(
     """
     perf_block, print_perf, _ = make_profiler()
 
-    results: list[ak.Array] = []
-    n_collected_events = 0
-
-    # Set defaults if not provided
-    if ext_trig_range_ns is None:
-        ext_trig_range_ns = [
-            (1_000, 44_000),
-            (55_000, 100_000),
-        ]  # forced/pulser events with full waveform windows except the central window around the trigger
-    if ge_trig_range_ns is None:
-        ge_trig_range_ns = [
-            (1_000, 44_000)
-        ]  # geds trigger events only in the window before the trigger
-
     evt_file_key = str(evt_file)
-    if evt_file_key in rc_index_lookup:
-        idx_fp = rc_index_lookup[evt_file_key]["forced_pulser"]
-        idx_getrg = rc_index_lookup[evt_file_key]["geds"]
-    else:
-        # Fallback if key not found (shouldn't happen if build_rc_evt_index_lookup was complete)
-        mask_fp, mask_getrg = get_rc_evt_mask(evt_file)
-        idx_fp = ak.where(mask_fp)[0].to_numpy()
-        idx_getrg = ak.where(mask_getrg)[0].to_numpy()
+    idx_fp = rc_index_lookup[evt_file_key]["forced_pulser"]
+    idx_getrg = rc_index_lookup[evt_file_key]["geds"]
 
     n_forced_pulser = len(idx_fp)
     n_geds = len(idx_getrg)
@@ -419,42 +402,27 @@ def get_rc_library(
             field_mask=["spms/energy", "spms/t0", "spms/rawid"],
         ).view_as("ak")
 
-    if n_forced_pulser > 0:
-        spms_fp = evt.spms[idx_fp]
-        with perf_block("ftlib_process_windows()"):
-            npe_fp, t0_fp = _process_spms_windows(
-                spms_fp.t0,
-                spms_fp.energy,
-                ext_trig_range_ns,
-                time_domain_ns,
-                min_sep_ns,
-            )
-        if len(npe_fp) > 0:
-            # each window produced one RC event per source event; repeat rawid
-            # accordingly so it aligns with the (n_windows*n_fp, n_ch, n_pe) output
-            n_windows = len(npe_fp) // n_forced_pulser
-            rawid_fp = ak.concatenate([spms_fp.rawid] * n_windows)
-            results.append(ak.Array({"rawid": rawid_fp, "npe": npe_fp, "t0": t0_fp}))
-            n_collected_events += len(npe_fp)
+    results: list[ak.Array] = []
+    n_collected_events = 0
 
-    if n_geds > 0:
-        spms_getrg = evt.spms[idx_getrg]
+    for idx, win_ranges in [
+        (idx_fp, ext_trig_range_ns),
+        (idx_getrg, ge_trig_range_ns),
+    ]:
+        if len(idx) == 0 or not win_ranges:
+            continue
+        spms = evt.spms[idx]
         with perf_block("ftlib_process_windows()"):
-            npe_getrg, t0_getrg = _process_spms_windows(
-                spms_getrg.t0,
-                spms_getrg.energy,
-                ge_trig_range_ns,
-                time_domain_ns,
-                min_sep_ns,
+            npe, t0 = _process_spms_windows(
+                spms.t0, spms.energy, win_ranges, time_domain_ns, min_sep_ns
             )
-        if len(npe_getrg) > 0:
-            # same rawid repetition as for forced/pulser above
-            n_windows = len(npe_getrg) // n_geds
-            rawid_getrg = ak.concatenate([spms_getrg.rawid] * n_windows)
-            results.append(
-                ak.Array({"rawid": rawid_getrg, "npe": npe_getrg, "t0": t0_getrg})
-            )
-            n_collected_events += len(npe_getrg)
+        if len(npe) > 0:
+            # each window produced one RC event per source event; repeat rawid
+            # accordingly so it aligns with the (n_windows*n_src, n_ch, n_pe) output
+            n_windows = len(npe) // len(idx)
+            rawid = ak.concatenate([spms.rawid] * n_windows)
+            results.append(ak.Array({"rawid": rawid, "npe": npe, "t0": t0}))
+            n_collected_events += len(npe)
 
     log.debug(
         "forced-trigger library file %s: forced_or_pulser_events=%d "
