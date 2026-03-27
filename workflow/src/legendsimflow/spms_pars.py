@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import awkward as ak
 import numpy as np
@@ -28,8 +30,25 @@ from .utils import lookup_dataflow_config
 log = logging.getLogger(__name__)
 
 
-def lookup_evt_files(l200data: str, runid: str, evt_tier_name: str) -> list[str | Path]:
-    """Lookup the paths to the `evt` files."""
+def lookup_evt_files(
+    l200data: str | Path, runid: str, evt_tier_name: str
+) -> list[Path]:
+    """Look up the `evt` tier file paths for a given run.
+
+    Parameters
+    ----------
+    l200data
+        Root path to the LEGEND-200 data directory.
+    runid
+        Run identifier string (e.g. ``"l200-p16-r008-phy"``).
+    evt_tier_name
+        Name of the evt tier (e.g. ``"evt"``).
+
+    Returns
+    -------
+    list[Path]
+        Matching evt-tier file paths for the given run.
+    """
     _, period, run, data_type = re.split(r"\W+", runid)
 
     if isinstance(l200data, str):
@@ -48,8 +67,27 @@ def lookup_evt_files(l200data: str, runid: str, evt_tier_name: str) -> list[str 
     return list((evt_path / data_type / period / run).glob("*"))
 
 
-def _next_rc_evt_file(evt_files: list[str | Path], rc_file_state: dict) -> str | Path:
-    """Return the next `evt` file, cycling through files in input order before repeating."""
+def _next_rc_evt_file(
+    evt_files: Sequence[str | Path], rc_file_state: dict[str, Any]
+) -> str | Path:
+    """Return the next evt file, cycling through the list before repeating.
+
+    Parameters
+    ----------
+    evt_files
+        Ordered sequence of evt file paths to cycle through.
+    rc_file_state
+        Mutable state dict shared across calls.  On the first call it is
+        populated with keys ``order`` (the file list), ``idx`` (current
+        position, int), and ``completed_cycle`` (bool, set to ``True`` once
+        the list has been exhausted once).  Subsequent calls increment ``idx``
+        and wrap it when all files have been visited.
+
+    Returns
+    -------
+    str | Path
+        Path to the next evt file to process.
+    """
     if "order" not in rc_file_state:
         order = list(evt_files)
         rc_file_state["order"] = order
@@ -77,13 +115,22 @@ def _next_rc_evt_file(evt_files: list[str | Path], rc_file_state: dict) -> str |
 
 
 def build_rc_evt_index_lookup(
-    rc_evt_files: list[str | Path],
+    rc_evt_files: Sequence[str | Path],
 ) -> dict[str, dict[str, np.ndarray]]:
     """Build per-file trigger index lookup for RC extraction.
 
-    Returns a dictionary keyed by file path string with entries:
-    - ``forced_pulser``: indices for forced/pulser and non-muon events
-    - ``geds``: indices for geds and non-muon events
+    Parameters
+    ----------
+    rc_evt_files
+        Evt-tier files to index.
+
+    Returns
+    -------
+    dict
+        Dictionary keyed by file path (as string) with entries:
+
+        - ``forced_pulser``: row indices of forced/pulser, non-muon events
+        - ``geds``: row indices of HPGe-triggered, non-muon events
     """
     lookup: dict[str, dict[str, np.ndarray]] = {}
     for evt_file in rc_evt_files:
@@ -96,8 +143,8 @@ def build_rc_evt_index_lookup(
 
 
 def get_chunk_rc_data(
-    rc_evt_files: list[str | Path],
-    rc_file_state: dict,
+    rc_evt_files: Sequence[str | Path],
+    rc_file_state: dict[str, Any],
     chunk_size: int,
     rc_index_lookup: dict[str, dict[str, np.ndarray]],
 ) -> ak.Array:
@@ -106,16 +153,18 @@ def get_chunk_rc_data(
     Parameters
     ----------
     rc_evt_files
-        Ordered list of evt files that can provide random-coincidence data.
+        Ordered sequence of evt files that can provide random-coincidence data.
+        Must not be empty.
     rc_file_state
         Mutable state for file cycling and carryover between chunks. Expected
         keys are created/updated internally (e.g. ``order``, ``idx``,
         ``counts``, ``carryover``).
     chunk_size
         Number of random-coincidence events requested for the current chunk.
+        Must be positive.
     rc_index_lookup
         Precomputed mapping from evt file to trigger-event indices,
-        built with ``build_rc_evt_index_lookup``.
+        built with :func:`build_rc_evt_index_lookup`.
 
     Returns
     -------
@@ -124,6 +173,13 @@ def get_chunk_rc_data(
         ``(chunk_size, n_channels)``, ``npe`` ``(chunk_size, n_channels, n_pe)``
         and ``t0`` (same shape as ``npe``).
     """
+    if not rc_evt_files:
+        msg = "rc_evt_files must not be empty"
+        raise ValueError(msg)
+    if chunk_size <= 0:
+        msg = f"chunk_size must be positive, got {chunk_size}"
+        raise ValueError(msg)
+
     rc_parts: list[ak.Array] = []
     total_rc_events = 0
     empty_parts_streak = 0
@@ -204,11 +260,11 @@ def get_chunk_rc_data(
 def _process_spms_windows(
     time: ak.Array,
     energy: ak.Array,
-    win_ranges: list[tuple[float, float]],
+    win_ranges: Sequence[tuple[float, float]],
     time_domain_ns: tuple[float, float],
     min_sep_ns: float,
 ) -> tuple[ak.Array, ak.Array]:
-    """Helper function to process SiPM data within specified window ranges.
+    """Process SiPM data within specified window ranges.
 
     Each ``(start, end)`` range in ``win_ranges`` is tiled with non-overlapping
     windows of length ``time_domain_ns[1] - time_domain_ns[0]``, separated by
@@ -294,6 +350,22 @@ def _process_spms_windows(
 
 
 def get_rc_evt_mask(evt_file: str | Path) -> tuple[ak.Array, ak.Array]:
+    """Compute boolean event masks for random-coincidence extraction.
+
+    Parameters
+    ----------
+    evt_file
+        Path to the evt-tier LH5 file.
+
+    Returns
+    -------
+    mask_forced_pulser
+        Boolean mask selecting forced-trigger and pulser events, excluding
+        muon coincidences.
+    mask_geds
+        Boolean mask selecting HPGe-triggered events, excluding muon
+        coincidences.
+    """
     evt = lh5.read(
         "evt",
         evt_file,
@@ -321,11 +393,11 @@ def get_rc_library(
     rc_index_lookup: dict[str, dict[str, np.ndarray]],
     time_domain_ns: tuple[float, float] = (-1_000, 5_000),
     min_sep_ns: float = 6_000,
-    ext_trig_range_ns: tuple[tuple[float, float], ...] = (
+    ext_trig_range_ns: Sequence[tuple[float, float]] = (
         (1_000, 44_000),
         (55_000, 100_000),
     ),
-    ge_trig_range_ns: tuple[tuple[float, float], ...] = ((1_000, 44_000),),
+    ge_trig_range_ns: Sequence[tuple[float, float]] = ((1_000, 44_000),),
 ) -> ak.Array:
     """Extract a library of random-coincidence (RC) events from an evt file.
 
@@ -365,20 +437,21 @@ def get_rc_library(
         Minimal separation time between two windows in a trace, in nanoseconds.
         Default 6000.
     ext_trig_range_ns
-        Window ranges for forced/pulser trigger events, as tuple of (start,
-        end) pairs in nanoseconds. Default: ``((1_000, 44_000), (55_000,
-        100_000))``.
+        Window ranges for forced/pulser trigger events, as a sequence of
+        ``(start, end)`` pairs in nanoseconds. Default:
+        ``((1_000, 44_000), (55_000, 100_000))``.
     ge_trig_range_ns
-        Window ranges for HPGe/LAr trigger events, as tuple of (start, end)
-        pairs in nanoseconds.  Default: ``((1_000, 44_000),)``.
+        Window ranges for HPGe/LAr trigger events, as a sequence of
+        ``(start, end)`` pairs in nanoseconds. Default: ``((1_000, 44_000),)``.
 
     Returns
     -------
-    Array with fields ``rawid``, the channel UIDs ``(n_rc_events, n_channels)``;
-    ``npe``, PE energies ``(n_rc_events, n_channels, n_pe)``; and ``t0``,
-    corresponding times relative to the start of a window (bounded by
-    ``time_domain_ns``), same shape as ``npe``.  Channel ordering within each
-    event matches the source ``spms/rawid`` ordering in ``evt_file``.
+    ak.Array
+        Record array with fields ``rawid`` (channel UIDs, shape
+        ``(n_rc_events, n_channels)``), ``npe`` (PE energies, shape
+        ``(n_rc_events, n_channels, n_pe)``), and ``t0`` (times relative to
+        each window start, same shape as ``npe``).  Channel ordering within
+        each event matches the source ``spms/rawid`` ordering in ``evt_file``.
     """
     perf_block, print_perf, _ = make_profiler()
 

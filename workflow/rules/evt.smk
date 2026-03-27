@@ -21,8 +21,8 @@ rule build_tier_evt:
     - fields from lower tiers are restructured into events;
     - new event-level fields are computed and stored in the output file;
     - optionally, random-coincidence (RC) SiPM data from real evt files is
-      added as ``spms/rc_energy`` and ``spms/rc_time`` (controlled by the
-      ``add_random_coincidences`` parameter, default ``False``).
+      added as `spms/rc_energy` and `spms/rc_time` (controlled by the
+      `add_random_coincidences` parameter, default `False`).
 
     Note: the corresponding `stp` tier file is also accessed at runtime for
     TCM merging and consistency checks, even though it is not a declared
