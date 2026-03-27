@@ -79,10 +79,12 @@ rule _init_julia_env:
         "Initializing Julia environment"
     output:
         config.paths.generated / ".julia-env-initialized",
+    log:
+        patterns.log_dirname(config) / "init-julia-env.log",
     shell:
         "julia --project=workflow/src/LegendSimflow.jl "
-        "workflow/src/legendsimflow/scripts/init-julia-env.jl && "
-        "touch {output}"
+        "workflow/src/legendsimflow/scripts/init-julia-env.jl "
+        "> {log} 2>&1 && touch {output}"
 
 
 rule cache_detector_usabilities:
