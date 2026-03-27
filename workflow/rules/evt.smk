@@ -19,7 +19,10 @@ rule build_tier_evt:
     - each chunk of the unified TCM is partitioned according to the livetime
       span of each run (see the `make_simstat_partition_file` rule);
     - fields from lower tiers are restructured into events;
-    - new event-level fields are computed and stored in the output file.
+    - new event-level fields are computed and stored in the output file;
+    - optionally, random-coincidence (RC) SiPM data from real evt files is
+      added as ``spms/rc_energy`` and ``spms/rc_time`` (controlled by the
+      ``add_random_coincidences`` parameter, default ``False``).
 
     Note: the corresponding `stp` tier file is also accessed at runtime for
     TCM merging and consistency checks, even though it is not a declared
@@ -33,6 +36,8 @@ rule build_tier_evt:
         opt_file=patterns.output_simjob_filename(config, tier="opt"),
         hit_file=patterns.output_simjob_filename(config, tier="hit"),
         simstat_part_file=patterns.simstat_part_filename(config),
+    params:
+        add_random_coincidences=False,
     output:
         patterns.output_simjob_filename(config, tier="evt"),
     log:

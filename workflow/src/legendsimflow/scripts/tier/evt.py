@@ -23,7 +23,7 @@ import numpy as np
 from dbetto.utils import load_dict
 from lgdo import Array, Table, VectorOfVectors, lh5
 
-from legendsimflow import nersc, patterns
+from legendsimflow import nersc, patterns, spms_pars, utils
 from legendsimflow import reboost as reboost_utils
 from legendsimflow.awkward import ak_isin
 from legendsimflow.metadata import encode_usability
@@ -51,6 +51,8 @@ evt_file = args.output[0]
 log_file = args.log[0]
 metadata = args.config.metadata
 simstat_part_file = args.input.simstat_part_file
+add_random_coincidences = args.params.add_random_coincidences
+l200data = args.config.paths.l200data
 
 evt_file, move2cfs = nersc.make_on_scratch(args.config, evt_file)
 
@@ -161,6 +163,23 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
     evt_start, evt_end = evt_idx_range
     # evt_idx_range is [start, end] inclusive
     n_entries = evt_end - evt_start + 1
+
+    if add_random_coincidences:
+        msg = "looking up forced trigger files for random coincidences"
+        log.debug(msg)
+        with perf_block("lookup_rc_files()"):
+            evt_tier_name = utils.get_evt_tier_name(l200data)
+            rc_evt_files = sorted(
+                spms_pars.lookup_evt_files(l200data, runid, evt_tier_name)
+            )
+            if not rc_evt_files:
+                msg = "no RC evt files found for random coincidences"
+                raise RuntimeError(msg)
+        with perf_block("build_rc_evt_index_lookup()"):
+            rc_index_lookup = spms_pars.build_rc_evt_index_lookup(rc_evt_files)
+        # state is reset per partition so RC events are drawn independently
+        # for each run slice
+        rc_file_state: dict = {}
 
     # iterate over the unified tcm for this partition; an empty partition
     # (n_entries=0) produces no chunks and is silently skipped
@@ -288,6 +307,31 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
         out_table.add_field(
             "spms/time", VectorOfVectors(time[pesel][chansel], attrs={"units": "ns"})
         )
+
+        if add_random_coincidences:
+            with perf_block("get_chunk_rc_data()"):
+                rc_chunk = spms_pars.get_chunk_rc_data(
+                    [str(f) for f in rc_evt_files],
+                    rc_file_state,
+                    len(unified_tcm),
+                    rc_index_lookup,
+                )
+            # assert rawid alignment: RC and simulation must use the same
+            # channel ordering (see comment on spms/rawid above).
+            # rawid is identical for every event within a run, so checking
+            # the first RC event against the first simulation event suffices.
+            rawid_sim = ak.to_list(tcm["opt"].table_key[chansel][0])
+            if ak.to_list(rc_chunk.rawid[0]) != rawid_sim:
+                msg = (
+                    "RC rawid does not match simulation spms/rawid — "
+                    "check that RC evt files come from a run with the same "
+                    "usability map as the current run partition"
+                )
+                raise ValueError(msg)
+            out_table.add_field("spms/rc_energy", VectorOfVectors(rc_chunk.npe))
+            out_table.add_field(
+                "spms/rc_time", VectorOfVectors(rc_chunk.t0, attrs={"units": "ns"})
+            )
 
         # total amount of light per event
         energy_sum = ak.sum(ak.sum(energy[pesel][chansel], axis=-1), axis=-1)
