@@ -20,6 +20,7 @@ import awkward as ak
 import legenddataflowscripts as ldfs
 import legenddataflowscripts.utils
 import numpy as np
+from dbetto.utils import load_dict
 from lgdo import Array, Table, VectorOfVectors, lh5
 
 from legendsimflow import nersc, patterns
@@ -38,8 +39,9 @@ ON = encode_usability("on")
 args = nersc.dvs_ro_snakemake(snakemake)  # noqa: F821
 
 wildcards = args.wildcards
+jobid = wildcards.jobid
 stp_file = patterns.output_simjob_filename(
-    args.config, tier="stp", simid=wildcards.simid, jobid=wildcards.jobid
+    args.config, tier="stp", simid=wildcards.simid, jobid=jobid
 )
 hit_file = {
     "opt": args.input.opt_file,
@@ -48,6 +50,7 @@ hit_file = {
 evt_file = args.output[0]
 log_file = args.log[0]
 metadata = args.config.metadata
+simstat_part_file = args.input.simstat_part_file
 
 evt_file, move2cfs = nersc.make_on_scratch(args.config, evt_file)
 
@@ -142,137 +145,166 @@ def _read_hits(tcm_ak, tier, field):
         return data_unflat
 
 
-# iterate over the unified tcm
-# NOTE: open mode is append because we will write to the same file
-it = lh5.LH5Iterator(str(evt_file), "tcm", buffer_len=BUFFER_LEN, h5py_open_mode="a")
+partitions = load_dict(simstat_part_file)[f"job_{jobid}"]
+
+# use write_safe on the first chunk to catch stale data from a failed retry
+evt_wo_mode = "write_safe"
 
 log.info("begin iterating over TCM")
-for chunk in it:
-    unified_tcm = chunk.view_as("ak")
-    out_table = Table(size=len(unified_tcm))
-
-    # split the unified TCM in two, one for each tier. in this way we will be
-    # able to read data from each tier
-    tcm = {}
-    for tier in ("opt", "hit"):
-        mask = ak_isin(unified_tcm.table_key, det2uid[tier].values())
-        tcm[tier] = unified_tcm[mask]
-
-    # trigger table
-    # -------------
-    out_table.add_field("trigger", Table(size=len(unified_tcm)))
-
-    # global fields that are constant over the full events
-    # let's take them from the hit tier
-    for constant_field in ["run", "period", "evtid"]:
-        data = _read_hits(tcm, "hit", constant_field)
-
-        # sanity check
-        assert len(data) == len(tcm[tier])
-
-        # replace the awkward missing values with NaN for LH5 compatibility
-        data = ak.fill_none(ak.firsts(data, axis=-1), np.nan)
-        out_table.add_field(f"trigger/{constant_field}", Array(data))
-
-    timestamp = _read_hits(tcm, "hit", "t0")
-    timestamp = ak.fill_none(ak.firsts(timestamp, axis=-1), np.nan)
-    out_table.add_field("trigger/timestamp", Array(timestamp, attrs={"units": "ns"}))
-
-    # HPGe table
-    # ----------
-    out_table.add_field("geds", Table(size=len(unified_tcm)))
-
-    # first read usability and energy
-    usability = _read_hits(tcm, "hit", "usability")
-    energy = _read_hits(tcm, "hit", "energy")
-
-    # we want to only store hits from events in ON and AC detectors and above
-    # our energy threshold
-    hitsel = (usability != OFF) & (energy > GEDS_ENERGY_THR_KEV)
-
-    # we want to still be able to know which detectors are ON (and not AC)
-    out_table.add_field(
-        "geds/is_good_channel", VectorOfVectors(usability[hitsel] == ON)
+for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
+    msg = (
+        f"processing partition corresponding to {runid} "
+        f"[{runid_idx + 1}/{len(partitions)}], event range {evt_idx_range}"
     )
-    out_table.add_field(
-        "geds/energy", VectorOfVectors(energy[hitsel], attrs={"units": "keV"})
+    log.info(msg)
+
+    evt_start, evt_end = evt_idx_range
+    # evt_idx_range is [start, end] inclusive
+    n_entries = evt_end - evt_start + 1
+
+    # iterate over the unified tcm for this partition; an empty partition
+    # (n_entries=0) produces no chunks and is silently skipped
+    # NOTE: open mode is append because we will write to the same file
+    it = lh5.LH5Iterator(
+        str(evt_file),
+        "tcm",
+        i_start=evt_start,
+        n_entries=n_entries,
+        buffer_len=BUFFER_LEN,
+        h5py_open_mode="a",
     )
-    # NOTE: the energy sum does not include AC detectors
-    out_table.add_field(
-        "geds/energy_sum",
-        Array(
-            ak.sum(energy[hitsel & (usability == ON)], axis=-1), attrs={"units": "keV"}
-        ),
-    )
+    for chunk in it:
+        unified_tcm = chunk.view_as("ak")
+        out_table = Table(size=len(unified_tcm))
 
-    # fields to identify detectors and lookup stuff in the lower tiers
-    out_table.add_field("geds/rawid", VectorOfVectors(tcm["hit"].table_key[hitsel]))
-    out_table.add_field(
-        "geds/hit_idx", VectorOfVectors(tcm["hit"].row_in_table[hitsel])
-    )
+        # split the unified TCM in two, one for each tier. in this way we will be
+        # able to read data from each tier
+        tcm = {}
+        for tier in ("opt", "hit"):
+            mask = ak_isin(unified_tcm.table_key, det2uid[tier].values())
+            tcm[tier] = unified_tcm[mask]
 
-    # simply forward some fields
-    aoe = _read_hits(tcm, "hit", "aoe")
-    out_table.add_field("geds/aoe", VectorOfVectors(aoe[hitsel]))
-    out_table.add_field("geds/has_aoe", VectorOfVectors(~np.isnan(aoe[hitsel])))
+        # trigger table
+        # -------------
+        out_table.add_field("trigger", Table(size=len(unified_tcm)))
 
-    is_ss = _read_hits(tcm, "hit", "is_single_site")
-    out_table.add_field("geds/is_single_site", VectorOfVectors(is_ss[hitsel]))
+        # global fields that are constant over the full events
+        # let's take them from the hit tier
+        for constant_field in ["run", "period", "evtid"]:
+            data = _read_hits(tcm, "hit", constant_field)
 
-    # compute multiplicity
-    geds_multiplicity = ak.sum(hitsel, axis=-1)
-    out_table.add_field("geds/multiplicity", Array(geds_multiplicity))
+            # sanity check
+            assert len(data) == len(tcm["hit"])
 
-    # SiPM table
-    # ----------
-    out_table.add_field("spms", Table(size=len(unified_tcm)))
+            # replace the awkward missing values with NaN for LH5 compatibility
+            data = ak.fill_none(ak.firsts(data, axis=-1), np.nan)
+            out_table.add_field(f"trigger/{constant_field}", Array(data))
 
-    # also here, we exclude the non usable channels. this is in line with what
-    # done in the evt tier in pygama
-    usability = _read_hits(tcm, "opt", "usability")
-    energy = _read_hits(tcm, "opt", "energy")
-    chansel = usability != OFF
-    # we also discard all pulses with amplitude below threshold
-    pesel = energy > SPMS_ENERGY_THR_PE
+        timestamp = _read_hits(tcm, "hit", "t0")
+        timestamp = ak.fill_none(ak.firsts(timestamp, axis=-1), np.nan)
+        out_table.add_field(
+            "trigger/timestamp", Array(timestamp, attrs={"units": "ns"})
+        )
 
-    out_table.add_field("spms/energy", VectorOfVectors(energy[pesel][chansel]))
+        # HPGe table
+        # ----------
+        out_table.add_field("geds", Table(size=len(unified_tcm)))
 
-    is_saturated = _read_hits(tcm, "opt", "is_saturated")
-    out_table.add_field("spms/is_saturated", VectorOfVectors(is_saturated[chansel]))
+        # first read usability and energy
+        usability = _read_hits(tcm, "hit", "usability")
+        energy = _read_hits(tcm, "hit", "energy")
 
-    # fields to identify detectors and lookup stuff in the lower tiers
-    out_table.add_field("spms/rawid", VectorOfVectors(tcm["opt"].table_key[chansel]))
-    out_table.add_field(
-        "spms/hit_idx", VectorOfVectors(tcm["opt"].row_in_table[chansel])
-    )
+        # we want to only store hits from events in ON and AC detectors and above
+        # our energy threshold
+        hitsel = (usability != OFF) & (energy > GEDS_ENERGY_THR_KEV)
 
-    time = _read_hits(tcm, "opt", "time")
-    out_table.add_field(
-        "spms/time", VectorOfVectors(time[pesel][chansel], attrs={"units": "ns"})
-    )
+        # we want to still be able to know which detectors are ON (and not AC)
+        out_table.add_field(
+            "geds/is_good_channel", VectorOfVectors(usability[hitsel] == ON)
+        )
+        out_table.add_field(
+            "geds/energy", VectorOfVectors(energy[hitsel], attrs={"units": "keV"})
+        )
+        # NOTE: the energy sum does not include AC detectors
+        out_table.add_field(
+            "geds/energy_sum",
+            Array(
+                ak.sum(energy[hitsel & (usability == ON)], axis=-1),
+                attrs={"units": "keV"},
+            ),
+        )
 
-    # total amount of light per event
-    energy_sum = ak.sum(ak.sum(energy[pesel][chansel], axis=-1), axis=-1)
-    out_table.add_field("spms/energy_sum", Array(energy_sum))
+        # fields to identify detectors and lookup stuff in the lower tiers
+        out_table.add_field("geds/rawid", VectorOfVectors(tcm["hit"].table_key[hitsel]))
+        out_table.add_field(
+            "geds/hit_idx", VectorOfVectors(tcm["hit"].row_in_table[hitsel])
+        )
 
-    # how many channels saw some light
-    spms_multiplicity = ak.sum(ak.any(chansel & pesel, axis=-1), axis=-1)
-    out_table.add_field("spms/multiplicity", Array(spms_multiplicity))
+        # simply forward some fields
+        aoe = _read_hits(tcm, "hit", "aoe")
+        out_table.add_field("geds/aoe", VectorOfVectors(aoe[hitsel]))
+        out_table.add_field("geds/has_aoe", VectorOfVectors(~np.isnan(aoe[hitsel])))
 
-    # coincidences table
-    # ------------------
-    out_table.add_field("coincident", Table(size=len(unified_tcm)))
+        is_ss = _read_hits(tcm, "hit", "is_single_site")
+        out_table.add_field("geds/is_single_site", VectorOfVectors(is_ss[hitsel]))
 
-    # is there a signal in the HPGe array?
-    out_table.add_field("coincident/geds", Array(geds_multiplicity > 0))
+        # compute multiplicity
+        geds_multiplicity = ak.sum(hitsel, axis=-1)
+        out_table.add_field("geds/multiplicity", Array(geds_multiplicity))
 
-    # is there a signal in the LAr instrumentation?
-    lar_veto = (spms_multiplicity >= 4) | (energy_sum >= 4)
-    out_table.add_field("coincident/spms", Array(lar_veto))
+        # SiPM table
+        # ----------
+        out_table.add_field("spms", Table(size=len(unified_tcm)))
 
-    # now write down
-    with perf_block("write_chunk()"):
-        lh5.write(out_table, "evt", evt_file, wo_mode="append")
+        # also here, we exclude the non usable channels. this is in line with what
+        # done in the evt tier in pygama
+        usability = _read_hits(tcm, "opt", "usability")
+        energy = _read_hits(tcm, "opt", "energy")
+        chansel = usability != OFF
+        # we also discard all pulses with amplitude below threshold
+        pesel = energy > SPMS_ENERGY_THR_PE
+
+        out_table.add_field("spms/energy", VectorOfVectors(energy[pesel][chansel]))
+
+        is_saturated = _read_hits(tcm, "opt", "is_saturated")
+        out_table.add_field("spms/is_saturated", VectorOfVectors(is_saturated[chansel]))
+
+        # fields to identify detectors and lookup stuff in the lower tiers
+        out_table.add_field(
+            "spms/rawid", VectorOfVectors(tcm["opt"].table_key[chansel])
+        )
+        out_table.add_field(
+            "spms/hit_idx", VectorOfVectors(tcm["opt"].row_in_table[chansel])
+        )
+
+        time = _read_hits(tcm, "opt", "time")
+        out_table.add_field(
+            "spms/time", VectorOfVectors(time[pesel][chansel], attrs={"units": "ns"})
+        )
+
+        # total amount of light per event
+        energy_sum = ak.sum(ak.sum(energy[pesel][chansel], axis=-1), axis=-1)
+        out_table.add_field("spms/energy_sum", Array(energy_sum))
+
+        # how many channels saw some light
+        spms_multiplicity = ak.sum(ak.any(chansel & pesel, axis=-1), axis=-1)
+        out_table.add_field("spms/multiplicity", Array(spms_multiplicity))
+
+        # coincidences table
+        # ------------------
+        out_table.add_field("coincident", Table(size=len(unified_tcm)))
+
+        # is there a signal in the HPGe array?
+        out_table.add_field("coincident/geds", Array(geds_multiplicity > 0))
+
+        # is there a signal in the LAr instrumentation?
+        lar_veto = (spms_multiplicity >= 4) | (energy_sum >= 4)
+        out_table.add_field("coincident/spms", Array(lar_veto))
+
+        # now write down
+        with perf_block("write_chunk()"):
+            lh5.write(out_table, "evt", evt_file, wo_mode=evt_wo_mode)
+            evt_wo_mode = "append"
 
 with perf_block("move_to_cfs()"):
     move2cfs()

@@ -315,21 +315,9 @@ def test_process_spms_windows_basic():
     assert ak.all(flat_t0 <= time_domain_ns[1])
 
 
-def _get_rc_library_all_channels(
-    evt_file: str,
-    sipm_uid: int,
-    **kwargs,
-) -> ak.Array:
+def _get_rc_library(evt_file: str, **kwargs) -> ak.Array:
     lookup = spms_pars.build_rc_evt_index_lookup([evt_file])
-    return spms_pars.get_rc_library(
-        evt_file,
-        "evt",
-        "hit",
-        "all",
-        sipm_uid,
-        lookup,
-        **kwargs,
-    )
+    return spms_pars.get_rc_library(evt_file, lookup, **kwargs)
 
 
 def test_forced_trigger_library_basic(legend_testdata):
@@ -337,7 +325,7 @@ def test_forced_trigger_library_basic(legend_testdata):
     f_evt = legend_testdata["lh5/l200-p16-r008-ssc-20251006T205904Z-tier_evt.lh5"]
 
     # Test with default parameters
-    result = _get_rc_library_all_channels(f_evt, 1000)
+    result = _get_rc_library(f_evt)
 
     # Check returned structure
     assert "npe" in result.fields
@@ -362,7 +350,7 @@ def test_forced_trigger_library_custom_time_domain(legend_testdata):
     f_evt = legend_testdata["lh5/l200-p16-r008-ssc-20251006T205904Z-tier_evt.lh5"]
 
     # Use custom time domain
-    result = _get_rc_library_all_channels(f_evt, 1000, time_domain_ns=(-500, 3000))
+    result = _get_rc_library(f_evt, time_domain_ns=(-500, 3000))
 
     # Check that times are in custom domain
     flat_t0 = ak.flatten(result.t0)
@@ -376,9 +364,8 @@ def test_forced_trigger_library_custom_ranges(legend_testdata):
     f_evt = legend_testdata["lh5/l200-p16-r008-ssc-20251006T205904Z-tier_evt.lh5"]
 
     # Use custom ranges
-    result = _get_rc_library_all_channels(
+    result = _get_rc_library(
         f_evt,
-        1000,
         ext_trig_range_ns=[(1000, 2000)],  # Single smaller range
         ge_trig_range_ns=[(1000, 2000)],  # Single smaller range
     )
@@ -395,8 +382,8 @@ def test_forced_trigger_library_rawid_consistency(legend_testdata):
     """Test reproducibility for repeated calls with identical inputs."""
     f_evt = legend_testdata["lh5/l200-p16-r008-ssc-20251006T205904Z-tier_evt.lh5"]
 
-    result_1 = _get_rc_library_all_channels(f_evt, 1000)
-    result_2 = _get_rc_library_all_channels(f_evt, 1000)
+    result_1 = _get_rc_library(f_evt)
+    result_2 = _get_rc_library(f_evt)
 
     assert len(result_1) == len(result_2)
     assert ak.to_list(result_1.npe) == ak.to_list(result_2.npe)
@@ -407,7 +394,7 @@ def test_forced_trigger_library_structure(legend_testdata):
     """Test the structure of returned data from get_random_coincidences_library."""
     f_evt = legend_testdata["lh5/l200-p16-r008-ssc-20251006T205904Z-tier_evt.lh5"]
 
-    result = _get_rc_library_all_channels(f_evt, 1000)
+    result = _get_rc_library(f_evt)
 
     # npe and t0 should have matching shapes at each level
     assert len(result.npe) == len(result.t0)
@@ -417,7 +404,7 @@ def test_forced_trigger_library_evt_number(legend_testdata):
     """Test the structure of returned data from get_random_coincidences_library."""
     f_evt = legend_testdata["lh5/l200-p16-r008-ssc-20251006T205904Z-tier_evt.lh5"]
 
-    result = _get_rc_library_all_channels(f_evt, 1000)
+    result = _get_rc_library(f_evt)
 
     evt = lh5.read_as("evt", f_evt, "ak")
 
@@ -447,12 +434,12 @@ def test_forced_trigger_library_evt_number(legend_testdata):
 def test_forced_trigger_library_num_processed_files(legend_testdata):
     f_evt = legend_testdata["lh5/l200-p16-r008-ssc-20251006T205904Z-tier_evt.lh5"]
 
-    r1 = _get_rc_library_all_channels(f_evt, 1000)
-    r2 = _get_rc_library_all_channels(f_evt, 3000)
+    r1 = _get_rc_library(f_evt)
+    r2 = _get_rc_library(f_evt)
     r3 = ak.concatenate(
         [
-            _get_rc_library_all_channels(f_evt, 8000),
-            _get_rc_library_all_channels(f_evt, 8000),
+            _get_rc_library(f_evt),
+            _get_rc_library(f_evt),
         ]
     )
 
