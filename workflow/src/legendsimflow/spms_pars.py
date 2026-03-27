@@ -120,7 +120,9 @@ def get_chunk_rc_data(
     Returns
     -------
     ak.Array
-        Random-coincidence data for one chunk with fields ``npe`` and ``t0``.
+        Random-coincidence data for one chunk with fields ``rawid``
+        ``(chunk_size, n_channels)``, ``npe`` ``(chunk_size, n_channels, n_pe)``
+        and ``t0`` (same shape as ``npe``).
     """
     rc_parts: list[ak.Array] = []
     total_rc_events = 0
@@ -208,27 +210,41 @@ def _process_spms_windows(
 ) -> tuple[ak.Array, ak.Array]:
     """Helper function to process SiPM data within specified window ranges.
 
+    Each ``(start, end)`` range in ``win_ranges`` is tiled with non-overlapping
+    windows of length ``time_domain_ns[1] - time_domain_ns[0]``, separated by
+    ``min_sep_ns``.  PE hits falling inside each window are selected and their
+    times are shifted so that the window start maps to ``time_domain_ns[0]``.
+
+    The function works on arrays of any rank.  For N-D input (e.g. shape
+    ``(n_events, n_channels, n_pe)``), each extracted window produces one
+    output block of the same shape along all but the innermost axis, with only
+    the PE dimension filtered.  Blocks from all windows are then concatenated
+    along axis=0, so M source events processed through W windows yield
+    ``W * M`` output entries.
+
     Parameters
     ----------
     time
-        SiPM `t0` array from `evt` file, or equivalently, `trigger_pos` with `is_valid_hit` from `hit` file.
+        PE hit times.  Any shape; the innermost axis is the PE axis.
     energy
-        SiPM `energy` array from `evt` file, or equivalently, `energy_in_pe` with `is_valid_hit` from `hit` file.
+        PE energies, same shape as ``time``.
     win_ranges
-        List of `(start, end)` tuples defining window ranges in nanoseconds.
+        List of ``(start, end)`` tuples defining the time ranges to tile, in
+        nanoseconds.
     time_domain_ns
-        Target time range `(start, end)` for output times in nanoseconds.
-        E.g., `(-1000, 5000)` means output times will be in `[-1000, 5000]`.
+        Target time range ``(start, end)`` for output times in nanoseconds.
+        The window length is ``end - start``.  E.g. ``(-1000, 5000)`` selects
+        6000 ns windows and maps their start to ``-1000 ns``.
     min_sep_ns
-        Minimal separation between windows in nanoseconds.
+        Minimum gap between consecutive windows in nanoseconds.
 
     Returns
     -------
     npe
-        Photoelectron counts extracted from the requested windows.
+        PE energies extracted from all windows, concatenated along axis=0.
     t0
-        Times relative to time_domain_ns extracted from the requested windows.
-
+        PE times relative to each window's start (bounded by
+        ``time_domain_ns``), same shape as ``npe``.
     """
     # Validate inputs to avoid infinite loops and invalid window definitions
     if time_domain_ns[1] <= time_domain_ns[0]:
@@ -308,21 +324,28 @@ def get_rc_library(
     ext_trig_range_ns: list[tuple[float, float]] | None = None,
     ge_trig_range_ns: list[tuple[float, float]] | None = None,
 ) -> ak.Array:
-    """Extract a library of forced trigger events.
+    """Extract a library of random-coincidence (RC) events from an evt file.
 
     To be used in correcting the SiPM photoelectrons with random coincidences.
 
-    This reformats the data to make use of several windows within a waveform to
-    build forced trigger events and then stores the number of pe and times for
-    each SiPM channel from that window (to be used for corrections).
+    For each qualifying trigger event, the SiPM waveform is divided into
+    multiple non-overlapping time windows (see ``_process_spms_windows``).
+    Each window yields one independent RC event, so the total number of entries
+    in the returned library is ``n_source_events x n_windows``.  The
+    per-channel structure is preserved: ``npe`` and ``t0`` have shape
+    ``(n_rc_events, n_channels, n_pe)`` and ``rawid`` has shape
+    ``(n_rc_events, n_channels)``, matching the ``spms/*`` layout of the evt
+    tier.
 
-    This function processes two types of triggers with different window ranges:
+    Two trigger categories are processed with different window ranges to avoid
+    contaminating RC events with physics signal:
 
-    - Forced/pulser triggers: uses full waveform ``[(1_000, 44_000), (55_000,
-      100_000)]`` ns
-    - HPGe/LAr triggers: uses first half only ``(1_000, 44_000)`` ns
+    - Forced/pulser triggers: full waveform outside the central trigger window,
+      ``[(1_000, 44_000), (55_000, 100_000)]`` ns by default.
+    - HPGe/LAr triggers: first half only (before the trigger), ``[(1_000,
+      44_000)]`` ns by default.
 
-    Both are always filtered to exclude muon coincidences.
+    Both categories are filtered to exclude muon coincidences.
 
     Parameters
     ----------
@@ -348,14 +371,15 @@ def get_rc_library(
 
     Returns
     -------
-    Array with fields "npe", the number of pe per hit, and "t0", the
-    corresponding time relative to the start of a window in the trace (bounded
-    by ``time_domain_ns``).
+    Array with fields ``rawid``, the channel UIDs ``(n_rc_events, n_channels)``;
+    ``npe``, PE energies ``(n_rc_events, n_channels, n_pe)``; and ``t0``,
+    corresponding times relative to the start of a window (bounded by
+    ``time_domain_ns``), same shape as ``npe``.  Channel ordering within each
+    event matches the source ``spms/rawid`` ordering in ``evt_file``.
     """
     perf_block, print_perf, _ = make_profiler()
 
-    npe_list: list[ak.Array] = []
-    t0_list: list[ak.Array] = []
+    results: list[ak.Array] = []
     n_collected_events = 0
 
     # Set defaults if not provided
@@ -382,42 +406,55 @@ def get_rc_library(
     n_forced_pulser = len(idx_fp)
     n_geds = len(idx_getrg)
 
+    if n_forced_pulser == 0 and n_geds == 0:
+        log.debug("no forced/pulser or geds events found in %s", Path(evt_file).name)
+        return ak.Array(
+            {"rawid": ak.Array([]), "npe": ak.Array([]), "t0": ak.Array([])}
+        )
+
     with perf_block("ftlib_read_evt_spms()"):
         evt = lh5.read(
             "evt",
             evt_file,
-            field_mask=[
-                "spms/energy",
-                "spms/t0",
-            ],
+            field_mask=["spms/energy", "spms/t0", "spms/rawid"],
         ).view_as("ak")
 
+    if n_forced_pulser > 0:
         spms_fp = evt.spms[idx_fp]
-        time_fp = ak.flatten(spms_fp.t0, axis=-1)
-        energy_fp = ak.flatten(spms_fp.energy, axis=-1)
+        with perf_block("ftlib_process_windows()"):
+            npe_fp, t0_fp = _process_spms_windows(
+                spms_fp.t0,
+                spms_fp.energy,
+                ext_trig_range_ns,
+                time_domain_ns,
+                min_sep_ns,
+            )
+        if len(npe_fp) > 0:
+            # each window produced one RC event per source event; repeat rawid
+            # accordingly so it aligns with the (n_windows*n_fp, n_ch, n_pe) output
+            n_windows = len(npe_fp) // n_forced_pulser
+            rawid_fp = ak.concatenate([spms_fp.rawid] * n_windows)
+            results.append(ak.Array({"rawid": rawid_fp, "npe": npe_fp, "t0": t0_fp}))
+            n_collected_events += len(npe_fp)
 
+    if n_geds > 0:
         spms_getrg = evt.spms[idx_getrg]
-        time_getrg = ak.flatten(spms_getrg.t0, axis=-1)
-        energy_getrg = ak.flatten(spms_getrg.energy, axis=-1)
-
-    if len(time_fp) > 0:
         with perf_block("ftlib_process_windows()"):
-            npe_chunk, t0_chunk = _process_spms_windows(
-                time_fp, energy_fp, ext_trig_range_ns, time_domain_ns, min_sep_ns
+            npe_getrg, t0_getrg = _process_spms_windows(
+                spms_getrg.t0,
+                spms_getrg.energy,
+                ge_trig_range_ns,
+                time_domain_ns,
+                min_sep_ns,
             )
-            if len(npe_chunk) > 0:
-                npe_list.append(npe_chunk)
-                t0_list.append(t0_chunk)
-                n_collected_events += len(npe_chunk)
-    if len(time_getrg) > 0:
-        with perf_block("ftlib_process_windows()"):
-            npe_chunk, t0_chunk = _process_spms_windows(
-                time_getrg, energy_getrg, ge_trig_range_ns, time_domain_ns, min_sep_ns
+        if len(npe_getrg) > 0:
+            # same rawid repetition as for forced/pulser above
+            n_windows = len(npe_getrg) // n_geds
+            rawid_getrg = ak.concatenate([spms_getrg.rawid] * n_windows)
+            results.append(
+                ak.Array({"rawid": rawid_getrg, "npe": npe_getrg, "t0": t0_getrg})
             )
-            if len(npe_chunk) > 0:
-                npe_list.append(npe_chunk)
-                t0_list.append(t0_chunk)
-                n_collected_events += len(npe_chunk)
+            n_collected_events += len(npe_getrg)
 
     log.debug(
         "forced-trigger library file %s: forced_or_pulser_events=%d "
@@ -428,14 +465,11 @@ def get_rc_library(
         n_collected_events,
     )
 
-    with perf_block("ftlib_concatenate()"):
-        if npe_list:
-            npe = ak.concatenate(npe_list)
-            t0 = ak.concatenate(t0_list)
-        else:
-            npe = ak.Array([])
-            t0 = ak.Array([])
-
     print_perf()
 
-    return ak.Array({"npe": npe, "t0": t0})
+    if not results:
+        return ak.Array(
+            {"rawid": ak.Array([]), "npe": ak.Array([]), "t0": ak.Array([])}
+        )
+
+    return ak.concatenate(results) if len(results) > 1 else results[0]

@@ -122,11 +122,48 @@ def test_get_rc_library(legend_testdata):
     lookup = spms_pars.build_rc_evt_index_lookup([evt_file])
     lib = spms_pars.get_rc_library(evt_file, lookup)
 
+    assert "rawid" in lib.fields
     assert "npe" in lib.fields
     assert "t0" in lib.fields
     assert len(lib) > 0
+    # rawid, npe, t0 share the same outer two dimensions (events x channels)
+    assert len(lib.rawid) == len(lib.npe) == len(lib.t0)
     assert ak.all(lib.t0 >= -1000)
     assert ak.all(lib.t0 <= 5000)
+
+
+def test_get_rc_library_window_multiplication(legend_testdata):
+    """Each source event produces one RC event per extracted time window."""
+    evt_file = legend_testdata[EVT_FILE]
+    lookup = spms_pars.build_rc_evt_index_lookup([evt_file])
+    n_fp = len(lookup[str(evt_file)]["forced_pulser"])
+
+    # one window: exactly n_fp RC events
+    result_1w = spms_pars.get_rc_library(
+        evt_file,
+        lookup,
+        ext_trig_range_ns=[(1_000, 7_000)],
+        ge_trig_range_ns=[],
+        time_domain_ns=(-1_000, 5_000),
+        min_sep_ns=6_000,
+    )
+    assert len(result_1w) == n_fp
+
+    # two windows: 2 x n_fp RC events
+    result_2w = spms_pars.get_rc_library(
+        evt_file,
+        lookup,
+        ext_trig_range_ns=[(1_000, 7_000), (14_000, 20_000)],
+        ge_trig_range_ns=[],
+        time_domain_ns=(-1_000, 5_000),
+        min_sep_ns=6_000,
+    )
+    assert len(result_2w) == 2 * n_fp
+
+    # the rawid for the same source event is identical across windows
+    # (window 0: indices 0..n_fp-1, window 1: indices n_fp..2*n_fp-1)
+    if n_fp > 0:
+        assert ak.to_list(result_2w.rawid[:n_fp]) == ak.to_list(result_2w.rawid[n_fp:])
 
 
 def test_get_chunk_rc_data_returns_exact_size(legend_testdata):

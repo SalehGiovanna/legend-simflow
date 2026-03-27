@@ -328,6 +328,7 @@ def test_forced_trigger_library_basic(legend_testdata):
     result = _get_rc_library(f_evt)
 
     # Check returned structure
+    assert "rawid" in result.fields
     assert "npe" in result.fields
     assert "t0" in result.fields
 
@@ -386,6 +387,7 @@ def test_forced_trigger_library_rawid_consistency(legend_testdata):
     result_2 = _get_rc_library(f_evt)
 
     assert len(result_1) == len(result_2)
+    assert ak.to_list(result_1.rawid) == ak.to_list(result_2.rawid)
     assert ak.to_list(result_1.npe) == ak.to_list(result_2.npe)
     assert ak.to_list(result_1.t0) == ak.to_list(result_2.t0)
 
@@ -396,8 +398,8 @@ def test_forced_trigger_library_structure(legend_testdata):
 
     result = _get_rc_library(f_evt)
 
-    # npe and t0 should have matching shapes at each level
-    assert len(result.npe) == len(result.t0)
+    # rawid, npe and t0 should have matching outer lengths
+    assert len(result.rawid) == len(result.npe) == len(result.t0)
 
 
 def test_forced_trigger_library_evt_number(legend_testdata):
@@ -428,7 +430,7 @@ def test_forced_trigger_library_evt_number(legend_testdata):
     else:
         assert len(result) > 0
         # When entries are present, npe and t0 should have matching outer lengths
-        assert len(result) == len(result.npe) == len(result.t0)
+        assert len(result) == len(result.rawid) == len(result.npe) == len(result.t0)
 
 
 def test_forced_trigger_library_num_processed_files(legend_testdata):

@@ -270,6 +270,13 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
         out_table.add_field("spms/is_saturated", VectorOfVectors(is_saturated[chansel]))
 
         # fields to identify detectors and lookup stuff in the lower tiers
+        # NOTE: chansel depends only on usability (not on whether PEs were
+        # detected), so all non-OFF channels are always present in rawid with
+        # empty energy/time lists for channels that had no hits.  This means
+        # rawid is identical for every event within a given run partition.
+        # RC data (added below) must follow the same convention; the assertion
+        # there checks this.  The implicit assumption is that RC evt files come
+        # from runs whose usability map matches the current run partition.
         out_table.add_field(
             "spms/rawid", VectorOfVectors(tcm["opt"].table_key[chansel])
         )
