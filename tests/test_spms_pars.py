@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import awkward as ak
+import numpy as np
 import pytest
 
 from legendsimflow import spms_pars
+
+EVT_FILE = "lh5/l200-p16-r008-ssc-20251006T205904Z-tier_evt.lh5"
 
 
 def test_process_spms_windows_two_windows():
@@ -83,3 +86,71 @@ def test_next_rc_evt_file_sets_cycle_flag_on_wrap():
     assert state["completed_cycle"] is False
     _ = spms_pars._next_rc_evt_file(files, state)
     assert state["completed_cycle"] is True
+
+
+# --- tests requiring a real evt file from legend-testdata ---
+
+
+def test_get_rc_evt_mask(legend_testdata):
+    evt_file = legend_testdata[EVT_FILE]
+    mask_fp, mask_getrg = spms_pars.get_rc_evt_mask(evt_file)
+
+    assert len(mask_fp) == 1000
+    assert len(mask_getrg) == 1000
+    # forced/pulser and geds triggers should be mutually exclusive categories
+    # (forced events are never geds-triggered in this data)
+    assert int(ak.sum(mask_fp)) > 0
+    assert int(ak.sum(mask_getrg)) > 0
+
+
+def test_build_rc_evt_index_lookup(legend_testdata):
+    evt_file = legend_testdata[EVT_FILE]
+    lookup = spms_pars.build_rc_evt_index_lookup([evt_file])
+
+    assert str(evt_file) in lookup
+    entry = lookup[str(evt_file)]
+    assert "forced_pulser" in entry
+    assert "geds" in entry
+    assert isinstance(entry["forced_pulser"], np.ndarray)
+    assert isinstance(entry["geds"], np.ndarray)
+    assert len(entry["forced_pulser"]) > 0
+    assert len(entry["geds"]) > 0
+
+
+def test_get_rc_library(legend_testdata):
+    evt_file = legend_testdata[EVT_FILE]
+    lookup = spms_pars.build_rc_evt_index_lookup([evt_file])
+    lib = spms_pars.get_rc_library(evt_file, lookup)
+
+    assert "npe" in lib.fields
+    assert "t0" in lib.fields
+    assert len(lib) > 0
+    assert ak.all(lib.t0 >= -1000)
+    assert ak.all(lib.t0 <= 5000)
+
+
+def test_get_chunk_rc_data_returns_exact_size(legend_testdata):
+    evt_file = legend_testdata[EVT_FILE]
+    rc_evt_files = [str(evt_file)]
+    lookup = spms_pars.build_rc_evt_index_lookup(rc_evt_files)
+
+    chunk = spms_pars.get_chunk_rc_data(rc_evt_files, {}, 10, lookup)
+    assert len(chunk) == 10
+
+
+def test_get_chunk_rc_data_carryover(legend_testdata):
+    """Leftover events from a file are reused in the next chunk."""
+    evt_file = legend_testdata[EVT_FILE]
+    rc_evt_files = [str(evt_file)]
+    lookup = spms_pars.build_rc_evt_index_lookup(rc_evt_files)
+
+    state: dict = {}
+    chunk1 = spms_pars.get_chunk_rc_data(rc_evt_files, state, 10, lookup)
+    assert len(chunk1) == 10
+    # if the file had more events than 10, carryover should be populated
+    lib_size = len(spms_pars.get_rc_library(evt_file, lookup))
+    if lib_size > 10:
+        assert state.get("carryover") is not None
+
+    chunk2 = spms_pars.get_chunk_rc_data(rc_evt_files, state, 10, lookup)
+    assert len(chunk2) == 10
