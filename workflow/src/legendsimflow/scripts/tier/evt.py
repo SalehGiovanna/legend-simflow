@@ -167,9 +167,8 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
     n_entries = evt_end - evt_start + 1
 
     # canonical non-OFF SiPM channel UIDs for this run, in ascending order.
-    # used to pad events with no SiPM photons so rawid/energy/time always
-    # carry the full channel dimension (empty arrays for inactive channels)
-    canonical_spms_uids = sorted(
+    # used to pad events with no edep in LAr photons
+    on_spms_uids = sorted(
         uid
         for det_name, uid in det2uid["opt"].items()
         if usabilities[runid].get(det_name, "on") != "off"
@@ -178,7 +177,7 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
     if add_random_coincidences:
         msg = "looking up forced trigger files for random coincidences"
         log.debug(msg)
-        with perf_block("lookup_rc_files()"):
+        with perf_block("lookup_l200data_evts_for_rc()"):
             evt_tier_name = utils.get_evt_tier_name(l200data)
             rc_evt_files = sorted(
                 spms_pars.lookup_evt_files(l200data, runid, evt_tier_name)
@@ -186,7 +185,7 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
             if not rc_evt_files:
                 msg = "no RC evt files found for random coincidences"
                 raise RuntimeError(msg)
-        with perf_block("build_rc_evt_index_lookup()"):
+
             rc_index_lookup = spms_pars.build_rc_evt_index_lookup(rc_evt_files)
         # state is reset per partition so RC events are drawn independently
         # for each run slice
@@ -294,43 +293,45 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
         # we also discard all pulses with amplitude below threshold
         pesel = energy > SPMS_ENERGY_THR_PE
 
-        # in simulation the opt TCM only records channels that detected
-        # photons, so events with no SiPM activity have empty arrays.
-        # pad those events with the canonical non-OFF channel list (empty
-        # PE arrays) to match the real-data convention where all non-OFF
-        # channels are always present.
-        # NOTE: the canonical_spms_uids ordering must match the ordering
+        # in simulation the opt TCM does not record events for which there is
+        # no energy in LAr. This means that in the unified TCM these events
+        # will be characterized by spms empty arrays.  pad those events with
+        # the canonical non-OFF channel list (empty PE arrays) to match the
+        # real-data convention where all non-OFF channels are always present.
+        # NOTE: the on_spms_uids ordering must match the ordering
         # used by non-empty events (i.e. the TCM ordering). Currently both
-        # are ascending by UID. The implicit assumption for RC data (added
-        # below) is that RC evt files come from runs whose usability map
-        # matches the current run partition.
+        # are ascending by UID.
         n_events = len(unified_tcm)
         is_empty_opt = ak.num(tcm["opt"].table_key) == 0
-        canonical_broadcast = ak.Array([canonical_spms_uids] * n_events)
+        rawid = ak.Array([on_spms_uids] * n_events)
 
-        rawid = tcm["opt"].table_key[chansel]
-        rawid = ak.where(is_empty_opt, canonical_broadcast, rawid)
+        # rawid is the same canonical list for every event (non-empty events
+        # already carry all non-OFF channels in ascending UID order)
         out_table.add_field("spms/rawid", VectorOfVectors(rawid))
 
         energy_sel = energy[pesel][chansel]
-        empty_energy = ak.Array([[[] for _ in canonical_spms_uids]] * n_events)
+        # fill in empty arrays for events with no LAr edep
+        empty_energy = ak.Array([[[] for _ in on_spms_uids]] * n_events)
         energy_sel = ak.where(is_empty_opt, empty_energy, energy_sel)
         out_table.add_field("spms/energy", VectorOfVectors(energy_sel))
 
         is_saturated = _read_hits(tcm, "opt", "is_saturated")
         is_saturated_sel = is_saturated[chansel]
-        empty_is_saturated = ak.Array([[False for _ in canonical_spms_uids]] * n_events)
+        # fill in Falses for events with no LAr edep
+        empty_is_saturated = ak.Array([[False for _ in on_spms_uids]] * n_events)
         is_saturated_sel = ak.where(is_empty_opt, empty_is_saturated, is_saturated_sel)
         out_table.add_field("spms/is_saturated", VectorOfVectors(is_saturated_sel))
 
         hit_idx = tcm["opt"].row_in_table[chansel]
-        empty_hit_idx = ak.Array([[-1 for _ in canonical_spms_uids]] * n_events)
+        # fill in -1 hit index for events with no LAr edep
+        empty_hit_idx = ak.Array([[-1 for _ in on_spms_uids]] * n_events)
         hit_idx = ak.where(is_empty_opt, empty_hit_idx, hit_idx)
         out_table.add_field("spms/hit_idx", VectorOfVectors(hit_idx))
 
         time = _read_hits(tcm, "opt", "time")
         time_sel = time[pesel][chansel]
-        empty_time = ak.Array([[[] for _ in canonical_spms_uids]] * n_events)
+        # fill in empty arrays for events with no LAr edep
+        empty_time = ak.Array([[[] for _ in on_spms_uids]] * n_events)
         time_sel = ak.where(is_empty_opt, empty_time, time_sel)
         out_table.add_field(
             "spms/time", VectorOfVectors(time_sel, attrs={"units": "ns"})
@@ -346,10 +347,8 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
                 )
             # assert rawid alignment: RC and simulation must use the same
             # channel ordering (both are ascending by UID)
-            assert ak.to_list(rc_chunk.rawid[0]) == canonical_spms_uids, (
-                "RC rawid does not match simulation spms/rawid — "
-                "check that RC evt files come from a run with the same "
-                "usability map as the current run partition"
+            assert ak.to_list(rc_chunk.rawid[0]) == on_spms_uids, (
+                "RC rawid does not match simulation spms/rawid"
             )
             out_table.add_field("spms/rc_energy", VectorOfVectors(rc_chunk.npe))
             out_table.add_field(
