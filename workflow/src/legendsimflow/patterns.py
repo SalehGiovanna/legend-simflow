@@ -98,7 +98,7 @@ def plots_tarball_filename(config: SimflowConfig) -> Path:
     name of the directory where the Simflow lives is used as a proxy.
     """
     cycle_dir = config.paths.generated.parent
-    return cycle_dir / "tarballs" / (cycle_dir.name + "-plots.tar.xz")
+    return config.paths.generated / "tarballs" / (cycle_dir.name + "-plots.tar.xz")
 
 
 # geometry
