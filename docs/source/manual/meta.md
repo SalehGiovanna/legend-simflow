@@ -8,8 +8,9 @@ The file naming convention for the `stp`, `opt` and `hit` tiers is:
 {experiment}-{simid}-job_{jobid}-tier_{tier}.{extension}
 ```
 
-where each label (in curly brackets `{}`) is alphanumeric (including
-underscores: `_`). Do not use dashes (`-`) or other characters.
+where each label (in curly brackets `{}`) should be alphanumeric (including
+underscores: `_`) when possible. Avoid dashes (`-`) and other special characters
+unless explicitly supported for that specific field.
 
 - `experiment` — name or label for the experimental configuration being
   simulated.
@@ -101,10 +102,18 @@ This is the main configuration file, which defines the set of _remage_
 simulations to run. It is a mapping from `simid` to a configuration block, which
 configures how to generate the _remage_ macro for that simulation.
 
-:::{note}
+:::{important}
 
-`simid` keys should preferably adopt "snake case" (lowercase letters, digits,
-and underscores only).
+`simid` keys must only contain word characters and hyphens, matching the pattern
+`[-\w]+` (letters `a–z`, `A–Z`, digits `0–9`, underscores `_`, and hyphens `-`).
+In particular, **dots (`.`) are forbidden**: they are the separator between tier
+and simid in the `simlist` format (`<tier>.<simid>`), so a dot inside a `simid`
+would break parsing.
+
+In this context hyphens are technically allowed by validation, but naming with
+**snake case** (letters, digits, underscores only) is still recommended for
+clarity, because hyphens are field separators in output file names (e.g.
+`{experiment}-{simid}-job_{jobid}-tier_{tier}.lh5`).
 
 :::
 
