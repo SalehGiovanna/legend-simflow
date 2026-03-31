@@ -157,7 +157,7 @@ dryrun = { cmd = "snakemake --dry-run" }
 touch = { cmd = "snakemake --touch" }
 
 [tool.pixi.tasks.prod]
-cmd = "snakemake --logger {{ logger }} --workflow-profile workflow/profiles/{{ profile }}"
+cmd = "snakemake --verbose --logger {{ logger }} --workflow-profile workflow/profiles/{{ profile }}"
 args = [
   {arg = "profile", default = "default"},
   {arg = "logger", default = "snkmt rich"},
