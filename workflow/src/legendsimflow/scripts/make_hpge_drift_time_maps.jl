@@ -55,14 +55,13 @@ function main()
         required = true
     end
     @add_arg_table s begin
-        "--opv"
-        help = "detector operational voltage in V"
-        required = true
-    end
-    @add_arg_table s begin
         "--output-file"
         help = "Path to output LH5 file"
         required = true
+    end
+    @add_arg_table s begin
+        "--opv"
+        help = "detector operational voltage in V (defaults to metadata value)"
     end
 
     parsed_args = parse_args(s)
