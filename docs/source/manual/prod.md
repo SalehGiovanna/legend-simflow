@@ -6,14 +6,32 @@ Run a production by using one of the provided site-specific profiles
 (recommended):
 
 ```console
+> pixi run prod --profile <profile-name>
+```
+
+This is equivalent to calling Snakemake directly:
+
+```console
 > snakemake --workflow-profile workflow/profiles/<profile-name>
 ```
 
-If no system-specific profiles are provided, the `--workflow-profile` option can
-be omitted. Snakemake will use the `default` profile.
+If no system-specific profile is needed, omit `--profile` (defaults to
+`default`):
 
 ```console
-> snakemake
+> pixi run prod
+```
+
+To preview what Snakemake would do without executing anything, use `dryrun`:
+
+```console
+> pixi run dryrun
+```
+
+To mark all output files as up-to-date without rerunning jobs, use `touch`:
+
+```console
+> pixi run touch
 ```
 
 The `--config` command line option is very useful to override configuration
@@ -157,7 +175,7 @@ value of 10 000 is a reasonable starting point.
 Run the production as usual. Snakemake will spawn exactly one job per `simid`:
 
 ```console
-> snakemake --workflow-profile workflow/profiles/<profile-name>
+> pixi run prod --profile <profile-name>
 ```
 
 ### Inspecting results
