@@ -43,10 +43,10 @@ def dvs_ro(
         return path
 
     if isinstance(path, str):
-        return re.sub("/global", "/dvs_ro", path)
+        return re.sub("^/global", "/dvs_ro", path)
 
     if isinstance(path, Path):
-        return Path(re.sub("/global", "/dvs_ro", path.as_posix()))
+        return Path(re.sub("^/global", "/dvs_ro", path.as_posix()))
 
     return [dvs_ro(config, p) for p in path]
 
