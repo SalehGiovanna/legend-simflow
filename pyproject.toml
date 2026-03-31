@@ -160,7 +160,7 @@ touch = { cmd = "snakemake --touch" }
 cmd = "snakemake --logger {{ logger }} --workflow-profile workflow/profiles/{{ profile }}"
 args = [
   {arg = "profile", default = "default"},
-  {arg = "logger", default = "snkmt,rich"},
+  {arg = "logger", default = "snkmt rich"},
 ]
 depends-on = ["precompile"]
 
