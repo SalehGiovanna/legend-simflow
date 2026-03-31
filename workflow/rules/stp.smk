@@ -28,6 +28,10 @@ rule gen_all_tier_stp:
         aggregate.gen_list_of_all_simid_outputs(config, tier="stp"),
 
 
+# NOTE: the geometry rules below intentionally live in stp.smk rather than a
+# shared module. The geometry must always be produced as part of an stp tier
+# production — upper tiers (vtx, hit, opt, ...) are required to take the
+# geometry from an existing stp production and must never build their own.
 rule gen_geom_config:
     """Write a geometry configuration file for legend-pygeom-l200.
 
