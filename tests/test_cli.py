@@ -14,12 +14,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-import argparse
 import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from legendsimflow.cli import (
     _partition,
@@ -57,73 +56,24 @@ def test_partition_empty():
 
 
 # ---------------------------------------------------------------------------
-# snakemake_nersc_cli - argument parsing
+# snakemake_nersc_cli
 # ---------------------------------------------------------------------------
 
 
-def _parse_nersc(argv):
-    """Call parse_known_args via the same parser logic as snakemake_nersc_cli."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--no-submit", action="store_true")
-    parser.add_argument("-N", "--nodes", type=int, required=True)
-    parser.add_argument("--without-srun", action="store_true")
-    return parser.parse_known_args(argv)
+def _make_nersc_config(tmp_path, simlist=("stp.simA", "stp.simB")):
+    """Write a minimal simflow-config.yaml suitable for snakemake_nersc_cli tests."""
+    cfg = {
+        "paths": {"metadata": str(tmp_path)},
+        "simlist": list(simlist),
+    }
+    (tmp_path / "simflow-config.yaml").write_text(yaml.dump(cfg))
 
 
-def test_nersc_cli_nodes_required():
-    args, _ = _parse_nersc(["-N", "4"])
-    assert args.nodes == 4
-
-
-def test_nersc_cli_no_submit_default_false():
-    args, _ = _parse_nersc(["-N", "2"])
-    assert args.no_submit is False
-
-
-def test_nersc_cli_no_submit_flag():
-    args, _ = _parse_nersc(["-N", "2", "--no-submit"])
-    assert args.no_submit is True
-
-
-def test_nersc_cli_without_srun_default_false():
-    args, _ = _parse_nersc(["-N", "2"])
-    assert args.without_srun is False
-
-
-def test_nersc_cli_without_srun_flag():
-    args, _ = _parse_nersc(["-N", "2", "--without-srun"])
-    assert args.without_srun is True
-
-
-def test_nersc_cli_extra_args_forwarded():
-    _, extra = _parse_nersc(["-N", "2", "--dryrun", "--cores", "4"])
-    assert "--dryrun" in extra
-    assert "--cores" in extra
-
-
-# ---------------------------------------------------------------------------
-# snakemake_nersc_cli - runtime behaviour
-# ---------------------------------------------------------------------------
-
-
-def test_nersc_cli_raises_for_single_node(tmp_path):
-    (tmp_path / "simflow-config.yaml").write_text("{}")
-    with (
-        patch.object(sys, "argv", ["snakemake-nersc", "-N", "1"]),
-        patch("os.getcwd", return_value=str(tmp_path)),
-        patch("legendsimflow.cli.Path", wraps=Path) as mock_path,
-    ):
-        # Redirect Path("./simflow-config.yaml") to tmp_path version
-        orig_path = Path
-
-        def patched_path(*args, **kwargs):
-            if args == ("./simflow-config.yaml",):
-                return tmp_path / "simflow-config.yaml"
-            return orig_path(*args, **kwargs)
-
-        mock_path.side_effect = patched_path
-        with pytest.raises(ValueError, match="at least 2 nodes"):
-            snakemake_nersc_cli()
+def test_nersc_cli_raises_for_single_node(monkeypatch):
+    """ValueError is raised before the config-file check, so no config is needed."""
+    monkeypatch.setattr(sys, "argv", ["snakemake-nersc", "-N", "1"])
+    with pytest.raises(ValueError, match="at least 2 nodes"):
+        snakemake_nersc_cli()
 
 
 def test_nersc_cli_raises_missing_config(tmp_path, monkeypatch):
@@ -133,80 +83,67 @@ def test_nersc_cli_raises_missing_config(tmp_path, monkeypatch):
         snakemake_nersc_cli()
 
 
-# ---------------------------------------------------------------------------
-# snakemake_nersc_batch_cli - argument parsing
-# ---------------------------------------------------------------------------
+def test_nersc_cli_no_submit(tmp_path, monkeypatch, capsys):
+    """--no-submit prints the snakemake commands that would be spawned."""
+    _make_nersc_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["snakemake-nersc", "-N", "2", "--no-submit"])
+    with patch("legendsimflow.cli.LegendMetadata"):
+        snakemake_nersc_cli()
+    out = capsys.readouterr().out
+    assert "snakemake" in out
+    # default: srun prefix is included
+    assert "srun" in out
 
 
-def _parse_batch(argv):
-    """Replicate the parser from snakemake_nersc_batch_cli."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--no-submit", action="store_true")
-    parser.add_argument("-t", "--time", required=True)
-    parser.add_argument("-N", "--nodes", default="1")
-    parser.add_argument("-c", "--cpus-per-task", default="256")
-    parser.add_argument("-J", "--job-name")
-    parser.add_argument("--mail-user")
-    return parser.parse_known_args(argv)
+def test_nersc_cli_without_srun(tmp_path, monkeypatch, capsys):
+    """--without-srun omits the srun prefix from each command."""
+    _make_nersc_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["snakemake-nersc", "-N", "2", "--no-submit", "--without-srun"],
+    )
+    with patch("legendsimflow.cli.LegendMetadata"):
+        snakemake_nersc_cli()
+    out = capsys.readouterr().out
+    assert "snakemake" in out
+    assert "srun" not in out
 
 
-def test_batch_cli_time_required():
-    args, _ = _parse_batch(["-t", "02:00:00"])
-    assert args.time == "02:00:00"
+def test_nersc_cli_extra_args_forwarded(tmp_path, monkeypatch, capsys):
+    """Extra arguments are forwarded verbatim to every snakemake invocation."""
+    _make_nersc_config(tmp_path, simlist=["stp.simA"])
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["snakemake-nersc", "-N", "2", "--no-submit", "--dryrun", "--cores", "4"],
+    )
+    with patch("legendsimflow.cli.LegendMetadata"):
+        snakemake_nersc_cli()
+    out = capsys.readouterr().out
+    assert "--dryrun" in out
+    assert "--cores" in out
 
 
-def test_batch_cli_nodes_default():
-    args, _ = _parse_batch(["-t", "01:00:00"])
-    assert args.nodes == "1"
-
-
-def test_batch_cli_nodes_custom():
-    args, _ = _parse_batch(["-t", "01:00:00", "-N", "4"])
-    assert args.nodes == "4"
-
-
-def test_batch_cli_cpus_per_task_default():
-    args, _ = _parse_batch(["-t", "01:00:00"])
-    assert args.cpus_per_task == "256"
-
-
-def test_batch_cli_cpus_per_task_custom():
-    args, _ = _parse_batch(["-t", "01:00:00", "-c", "128"])
-    assert args.cpus_per_task == "128"
-
-
-def test_batch_cli_job_name_default_none():
-    args, _ = _parse_batch(["-t", "01:00:00"])
-    assert args.job_name is None
-
-
-def test_batch_cli_job_name_custom():
-    args, _ = _parse_batch(["-t", "01:00:00", "-J", "my-sim"])
-    assert args.job_name == "my-sim"
-
-
-def test_batch_cli_mail_user_default_none():
-    args, _ = _parse_batch(["-t", "01:00:00"])
-    assert args.mail_user is None
-
-
-def test_batch_cli_mail_user_custom():
-    args, _ = _parse_batch(["-t", "01:00:00", "--mail-user", "user@example.com"])
-    assert args.mail_user == "user@example.com"
-
-
-def test_batch_cli_no_submit_default_false():
-    args, _ = _parse_batch(["-t", "01:00:00"])
-    assert args.no_submit is False
-
-
-def test_batch_cli_extra_args_forwarded():
-    _, extra = _parse_batch(["-t", "01:00:00", "--dryrun"])
-    assert "--dryrun" in extra
+def test_nersc_cli_simlist_partitioned(tmp_path, monkeypatch, capsys):
+    """The simlist is split across the requested number of nodes."""
+    _make_nersc_config(tmp_path, simlist=["stp.s1", "stp.s2", "stp.s3", "stp.s4"])
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys, "argv", ["snakemake-nersc", "-N", "2", "--no-submit", "--without-srun"]
+    )
+    with patch("legendsimflow.cli.LegendMetadata"):
+        snakemake_nersc_cli()
+    out = capsys.readouterr().out
+    # Two "would spawn" lines - one per node
+    assert out.count("would spawn") == 2
 
 
 # ---------------------------------------------------------------------------
-# snakemake_nersc_batch_cli - runtime behaviour
+# snakemake_nersc_batch_cli
 # ---------------------------------------------------------------------------
 
 
@@ -218,20 +155,22 @@ def test_batch_cli_raises_missing_config(tmp_path, monkeypatch):
 
 
 def test_batch_cli_no_submit_single_node(tmp_path, monkeypatch, capsys):
+    """Single node: uses plain snakemake (not snakemake-nersc)."""
     (tmp_path / "simflow-config.yaml").write_text("{}")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         sys, "argv", ["snakemake-nersc-batch", "-t", "02:00:00", "--no-submit"]
     )
     snakemake_nersc_batch_cli()
-    captured = capsys.readouterr()
-    assert "sbatch" in captured.out
-    assert "02:00:00" in captured.out
+    out = capsys.readouterr().out
+    assert "sbatch" in out
+    assert "02:00:00" in out
     # single node → uses plain snakemake, not snakemake-nersc
-    assert "snakemake-nersc" not in captured.out
+    assert "snakemake-nersc" not in out
 
 
 def test_batch_cli_no_submit_multi_node(tmp_path, monkeypatch, capsys):
+    """Multiple nodes: uses snakemake-nersc."""
     (tmp_path / "simflow-config.yaml").write_text("{}")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
@@ -240,32 +179,27 @@ def test_batch_cli_no_submit_multi_node(tmp_path, monkeypatch, capsys):
         ["snakemake-nersc-batch", "-t", "02:00:00", "-N", "4", "--no-submit"],
     )
     snakemake_nersc_batch_cli()
-    captured = capsys.readouterr()
-    assert "sbatch" in captured.out
-    assert "snakemake-nersc" in captured.out
+    out = capsys.readouterr().out
+    assert "sbatch" in out
+    assert "snakemake-nersc" in out
 
 
 def test_batch_cli_no_submit_with_job_name(tmp_path, monkeypatch, capsys):
+    """-J/--job-name is included in the sbatch command."""
     (tmp_path / "simflow-config.yaml").write_text("{}")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         sys,
         "argv",
-        [
-            "snakemake-nersc-batch",
-            "-t",
-            "02:00:00",
-            "-J",
-            "my-job",
-            "--no-submit",
-        ],
+        ["snakemake-nersc-batch", "-t", "02:00:00", "-J", "my-job", "--no-submit"],
     )
     snakemake_nersc_batch_cli()
-    captured = capsys.readouterr()
-    assert "my-job" in captured.out
+    out = capsys.readouterr().out
+    assert "my-job" in out
 
 
 def test_batch_cli_no_submit_with_mail(tmp_path, monkeypatch, capsys):
+    """--mail-user adds --mail-type and the address to the sbatch command."""
     (tmp_path / "simflow-config.yaml").write_text("{}")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
@@ -281,6 +215,47 @@ def test_batch_cli_no_submit_with_mail(tmp_path, monkeypatch, capsys):
         ],
     )
     snakemake_nersc_batch_cli()
-    captured = capsys.readouterr()
-    assert "user@example.com" in captured.out
-    assert "--mail-type" in captured.out
+    out = capsys.readouterr().out
+    assert "user@example.com" in out
+    assert "--mail-type" in out
+
+
+def test_batch_cli_no_submit_cpus_per_task(tmp_path, monkeypatch, capsys):
+    """-c/--cpus-per-task is passed through to sbatch."""
+    (tmp_path / "simflow-config.yaml").write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "snakemake-nersc-batch",
+            "-t",
+            "02:00:00",
+            "-c",
+            "128",
+            "--no-submit",
+        ],
+    )
+    snakemake_nersc_batch_cli()
+    out = capsys.readouterr().out
+    assert "128" in out
+
+
+def test_batch_cli_no_submit_extra_args_forwarded(tmp_path, monkeypatch, capsys):
+    """Extra arguments beyond the known flags are forwarded to snakemake."""
+    (tmp_path / "simflow-config.yaml").write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "snakemake-nersc-batch",
+            "-t",
+            "02:00:00",
+            "--no-submit",
+            "--dryrun",
+        ],
+    )
+    snakemake_nersc_batch_cli()
+    out = capsys.readouterr().out
+    assert "--dryrun" in out
