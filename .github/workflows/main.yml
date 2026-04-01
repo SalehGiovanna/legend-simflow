@@ -81,7 +81,7 @@ jobs:
           python -m pip install --upgrade .[test]
           python -m pytest --cov=legendsimflow --cov-report=xml
       - name: Upload Coverage to codecov.io
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
   test_julia:
@@ -103,7 +103,7 @@ jobs:
         with:
           directories: workflow/src/LegendSimflow.jl/src
       - name: Upload Julia coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
