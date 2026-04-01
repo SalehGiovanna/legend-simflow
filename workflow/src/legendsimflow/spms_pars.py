@@ -453,7 +453,7 @@ def get_rc_library(
         each window start, same shape as ``npe``).  Channel ordering within
         each event matches the source ``spms/rawid`` ordering in ``evt_file``.
     """
-    perf_block, print_perf, _ = make_profiler()
+    perf_block, _, _ = make_profiler()
 
     evt_file_key = str(evt_file)
     idx_fp = rc_index_lookup[evt_file_key]["forced_pulser"]
@@ -505,8 +505,6 @@ def get_rc_library(
         n_geds,
         n_collected_events,
     )
-
-    print_perf()
 
     if not results:
         return ak.Array(
