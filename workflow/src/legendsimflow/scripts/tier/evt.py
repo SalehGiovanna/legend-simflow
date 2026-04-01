@@ -133,7 +133,7 @@ def _read_hits(tcm_ak, tier, field):
             # check if we can just use the start_row / n_rows arguments
             # to read. this seems to be faster than using the idx argument
             # TODO: check/fix in legend-lh5io
-            if np.all(rows == np.arange(rows[0], rows[-1] + 1)):
+            if len(rows) >= 2 and np.all(rows == np.arange(rows[0], rows[-1] + 1)):
                 data_ch = lh5.read(
                     f"hit/{tab_name}/{field}",
                     hit_file[tier],
