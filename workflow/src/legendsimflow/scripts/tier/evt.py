@@ -394,7 +394,6 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
             evt_wo_mode = "append"
 
     print_stats_since_last()
-    break
 
 with perf_block("move_to_cfs()"):
     move2cfs()
