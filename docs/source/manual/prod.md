@@ -22,10 +22,10 @@ If no system-specific profile is needed, omit `--profile` (defaults to
 > pixi run prod
 ```
 
-To preview what Snakemake would do without executing anything, use `dryrun`:
+To preview what Snakemake would do without executing anything, use `dry`:
 
 ```console
-> pixi run dryrun
+> pixi run dry
 ```
 
 To mark all output files as up-to-date without rerunning jobs, use `touch`:
