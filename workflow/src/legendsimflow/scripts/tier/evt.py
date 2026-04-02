@@ -359,15 +359,20 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
                     len(unified_tcm),
                     rc_index_lookup,
                 )
+            # FIXME: this assertion fails because we haven't thought about
+            # cases when there is a DAQ recabling without hardware changes.
+            # right now this fails with p18 because SiPMs were recabled.
+            #
             # assert rawid alignment: RC and simulation must use the same
             # channel ordering (both are ascending by UID)
-            assert ak.to_list(rc_chunk.rawid[0]) == on_spms_uids, (
-                "RC rawid does not match simulation spms/rawid"
-            )
-            out_table.add_field("spms/rc_energy", VectorOfVectors(rc_chunk.npe))
-            out_table.add_field(
-                "spms/rc_time", VectorOfVectors(rc_chunk.t0, attrs={"units": "ns"})
-            )
+            # assert ak.to_list(rc_chunk.rawid[0]) == on_spms_uids, (
+            #     "RC rawid does not match simulation spms/rawid: "
+            #     f"{rc_chunk.rawid[0].to_list()} != {on_spms_uids}"
+            # )
+            # out_table.add_field("spms/rc_energy", VectorOfVectors(rc_chunk.npe))
+            # out_table.add_field(
+            #     "spms/rc_time", VectorOfVectors(rc_chunk.t0, attrs={"units": "ns"})
+            # )
 
         # total amount of light per event
         energy_sum = ak.sum(ak.sum(energy[pesel][chansel], axis=-1), axis=-1)
