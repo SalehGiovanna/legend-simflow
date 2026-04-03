@@ -292,6 +292,8 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
 
         is_ss = _read_hits(tcm, "hit", "is_single_site")
         out_table.add_field("geds/is_single_site", VectorOfVectors(is_ss[hitsel]))
+
+        out_table.add_field("geds/psd", Table(size=len(unified_tcm)))
         out_table.add_field(
             "geds/psd/is_good", VectorOfVectors(psd_usability[hitsel] == VALID_PSD)
         )
