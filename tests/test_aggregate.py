@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 from dbetto import AttrsDict
 
+import legendsimflow.aggregate as agg_mod
 from legendsimflow import aggregate as agg
 from legendsimflow.exceptions import SimflowConfigError
 
@@ -190,5 +192,28 @@ def test_usability_harvesting(config):
         "l200-p02-r006-phy",
         "l200-p02-r007-phy",
     ]
-    # now returns dict[str, int] (hpge -> usability)
-    assert usability["l200-p02-r000-phy"] == {"V99000A": "on", "B99000A": "on"}
+    assert usability["l200-p02-r000-phy"] == {
+        "V99000A": {"usability": "on", "psd_usability": "valid"},
+        "B99000A": {"usability": "off", "psd_usability": "missing"},
+    }
+
+
+def test_psd_usability_unknown_value(config, monkeypatch, caplog):
+    """Unknown psd.status.low_aoe values should warn and default to 'valid'."""
+    original = agg_mod.encode_psd_usability
+
+    # Make encode_psd_usability raise KeyError for any value except "valid"
+    # (simulates an unexpected psd.status.low_aoe in the metadata)
+    def patched_encode(val):
+        if val != "valid":
+            raise KeyError(val)
+        return original(val)
+
+    monkeypatch.setattr(agg_mod, "encode_psd_usability", patched_encode)
+
+    with caplog.at_level(logging.WARNING, logger="legendsimflow.aggregate"):
+        result = agg_mod.gen_list_of_all_usabilities(config)
+
+    assert "unexpected psd.status.low_aoe" in caplog.text
+    # B99000A has psd.status.low_aoe="missing" -> triggers warning -> defaults to "valid"
+    assert result["l200-p02-r000-phy"]["B99000A"]["psd_usability"] == "valid"

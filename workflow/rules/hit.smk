@@ -21,8 +21,8 @@ rule build_tier_hit:
 
     - each chunk is partitioned according to the livetime span of each run
       (see the `make_simstat_partition_file` rule). For each partition:
-    - the detector usability is retrieved from `legend-metadata` and stored in
-      the output;
+    - the detector usability and PSD usability are retrieved from
+      `legend-metadata` and stored in the output;
     - the active volume model is applied based on information from `legend-metadata`;
     - A/E is simulated based on current signal templates extracted from
       LEGEND-200 data;

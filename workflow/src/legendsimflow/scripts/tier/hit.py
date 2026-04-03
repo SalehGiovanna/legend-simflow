@@ -190,9 +190,15 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
             continue
 
         # get the usability
-        usability = usabilities[runid][det_name]
-        if usability is None:
+        det_info = usabilities[runid][det_name]
+        if det_info is None:
+            msg = f"usability not found for {det_name} in {runid}, defaulting to on"
+            log.warning(msg)
             usability = "on"
+            psd_usability = mutils.encode_psd_usability("valid")
+        else:
+            usability = det_info.usability
+            psd_usability = mutils.encode_psd_usability(det_info.psd_usability)
 
         msg = "looking for indices of hit table rows to read..."
         log.debug(msg)
@@ -389,6 +395,10 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
                     field,
                     lgdo.Array(np.full(shape=len(chunk), fill_value=field_vals[i])),
                 )
+            out_table.add_field(
+                "psd_usability",
+                lgdo.Array(np.full(shape=len(chunk), fill_value=psd_usability)),
+            )
 
             with perf_block("write_chunk()"):
                 reboost_utils.write_chunk(

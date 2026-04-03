@@ -120,12 +120,13 @@ base_mask = (  # noqa: E731
     & (evt.geds.multiplicity == 1)
     & evt.geds.is_good_channel
     & evt.geds.has_aoe
+    & evt.geds.psd.is_good
 )
 _plot_ehist(
     ax,
     base_mask,
     color="silver",
-    label="geds.is_good_channel & geds.has_aoe & geds.multiplicity == 1",
+    label="geds.is_good_channel & geds.has_aoe & geds.psd.is_good & geds.multiplicity == 1",
 )
 _plot_ehist(
     ax,

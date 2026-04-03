@@ -90,9 +90,10 @@ rule _init_julia_env:
 rule cache_detector_usabilities:
     """Cache detector usabilities.
 
-    Querying the metadata for detector analysis usability can be slow and
-    constitute the bottleneck in post-processing (`opt` and `hit` tiers).
-    This rule caches the mapping `run -> detector -> usability` on disk.
+    Querying the metadata for detector usability can be slow and constitute
+    the bottleneck in post-processing (``opt`` and ``hit`` tiers). This rule
+    caches the mapping ``run -> detector -> {usability, psd_usability}`` on
+    disk.
     """
     localrule: True
     message:

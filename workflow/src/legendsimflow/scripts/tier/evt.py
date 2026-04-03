@@ -27,7 +27,7 @@ from lgdo import Array, Table, VectorOfVectors, lh5
 from legendsimflow import nersc, patterns, spms_pars, utils
 from legendsimflow import reboost as reboost_utils
 from legendsimflow.awkward import ak_isin
-from legendsimflow.metadata import encode_usability
+from legendsimflow.metadata import encode_psd_usability, encode_usability
 from legendsimflow.profile import make_profiler
 from legendsimflow.tcm import merge_stp_n_opt_tcms_to_lh5
 
@@ -36,6 +36,7 @@ SPMS_ENERGY_THR_PE = 0
 BUFFER_LEN = "50*MB"
 OFF = encode_usability("off")
 ON = encode_usability("on")
+VALID_PSD = encode_psd_usability("valid")
 
 args = nersc.dvs_ro_snakemake(snakemake)  # noqa: F821
 
@@ -185,7 +186,7 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
     on_spms_uids = sorted(
         uid
         for det_name, uid in det2uid["opt"].items()
-        if usabilities[runid].get(det_name, "on") != "off"
+        if (usabilities[runid].get(det_name) or {}).get("usability", "on") != "off"
     )
 
     if add_random_coincidences:
@@ -255,6 +256,7 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
 
         # first read usability and energy
         usability = _read_hits(tcm, "hit", "usability")
+        psd_usability = _read_hits(tcm, "hit", "psd_usability")
         energy = _read_hits(tcm, "hit", "energy")
 
         # we want to only store hits from events in ON and AC detectors and above
@@ -290,6 +292,11 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
 
         is_ss = _read_hits(tcm, "hit", "is_single_site")
         out_table.add_field("geds/is_single_site", VectorOfVectors(is_ss[hitsel]))
+
+        out_table.add_field("geds/psd", Table(size=len(unified_tcm)))
+        out_table.add_field(
+            "geds/psd/is_good", VectorOfVectors(psd_usability[hitsel] == VALID_PSD)
+        )
 
         # compute multiplicity
         geds_multiplicity = ak.sum(hitsel, axis=-1)
