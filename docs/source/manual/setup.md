@@ -116,7 +116,7 @@ To load the software, just execute `pixi shell`. Alternatively, use the provided
 pixi tasks to run the workflow without entering a shell:
 
 - `pixi run prod [--profile <name>]` — run a full production (recommended)
-- `pixi run dryrun` — preview what Snakemake would do without executing
+- `pixi run dry` — preview what Snakemake would do without executing
 - `pixi run touch` — mark all outputs as up-to-date without re-running jobs
 - `pixi run snakemake [ARGS]` — pass arbitrary arguments directly to Snakemake
 

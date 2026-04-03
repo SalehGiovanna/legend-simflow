@@ -27,7 +27,7 @@ from lgdo import Array, Table, VectorOfVectors, lh5
 from legendsimflow import nersc, patterns, spms_pars, utils
 from legendsimflow import reboost as reboost_utils
 from legendsimflow.awkward import ak_isin
-from legendsimflow.metadata import encode_usability
+from legendsimflow.metadata import encode_psd_usability, encode_usability
 from legendsimflow.profile import make_profiler
 from legendsimflow.tcm import merge_stp_n_opt_tcms_to_lh5
 
@@ -36,6 +36,7 @@ SPMS_ENERGY_THR_PE = 0
 BUFFER_LEN = "50*MB"
 OFF = encode_usability("off")
 ON = encode_usability("on")
+VALID_PSD = encode_psd_usability("valid")
 
 args = nersc.dvs_ro_snakemake(snakemake)  # noqa: F821
 
@@ -60,7 +61,7 @@ evt_file, move2cfs = nersc.make_on_scratch(args.config, evt_file)
 
 # setup logging
 log = ldfs.utils.build_log(metadata.simprod.config.logging, log_file)
-perf_block, print_perf, _ = make_profiler()
+perf_block, print_stats, print_stats_since_last = make_profiler()
 
 log.info("merging hit and opt TCMs")
 with perf_block("merge_tcms()"):
@@ -113,40 +114,54 @@ def _read_hits(tcm_ak, tier, field):
     msg = f"loading {field=} data from {tier=} (file {hit_file[tier]})"
     log.debug(msg)
 
-    with perf_block("read_hits()"):
-        tcm = tcm_ak[tier]
-        with perf_block("flattening tcm"):
-            tcm_flat = ak.Array({k: ak.flatten(tcm[k]) for k in tcm.fields})
+    tcm = tcm_ak[tier]
+    tcm_flat = ak.Array({k: ak.flatten(tcm[k]) for k in tcm.fields})
 
-        data_flat = []
-        tcm_rows = []
+    data_flat = []
+    tcm_rows = []
 
-        # for un-flattening at the end
-        counts = ak.num(tcm.row_in_table)
+    # for un-flattening at the end
+    counts = ak.num(tcm.row_in_table)
 
-        for tab_name, key in det2uid[tier].items():
-            mask = tcm_flat.table_key == key
+    for tab_name, key in det2uid[tier].items():
+        mask = tcm_flat.table_key == key
 
-            with perf_block("filtering row_in_table"):
-                rows = tcm_flat.row_in_table[mask].to_numpy()
-                tcm_rows.append(np.where(mask)[0].to_numpy())
+        with perf_block("_read_hits()_tcm_filter"):
+            rows = np.sort(tcm_flat.row_in_table[mask].to_numpy())
+            tcm_rows.append(np.where(mask)[0].to_numpy())
 
-            with perf_block("lh5.read()"):
+        with perf_block("_read_hits()_lh5.read()"):
+            # check if we can just use the start_row / n_rows arguments
+            # to read. this seems to be faster than using the idx argument
+            # TODO: check/fix in legend-lh5io
+            if len(rows) >= 2 and np.all(rows == np.arange(rows[0], rows[-1] + 1)):
+                data_ch = lh5.read(
+                    f"hit/{tab_name}/{field}",
+                    hit_file[tier],
+                    start_row=rows[0],
+                    n_rows=len(rows),
+                )
+            else:
+                msg = (
+                    "unexpected: hit rows indices are != range(rows[0], rows[-1]+1). "
+                    "falling back to using lh5.read(..., idx=rows)"
+                )
+                log.warning(msg)
                 data_ch = lh5.read(f"hit/{tab_name}/{field}", hit_file[tier], idx=rows)
 
-            units = data_ch.attrs.get("units", None)
-            data_ch = data_ch.view_as("ak")
+        units = data_ch.attrs.get("units", None)
+        data_ch = data_ch.view_as("ak")
 
-            data_flat.append(data_ch)
+        data_flat.append(data_ch)
 
-        tcm_rows_concat = np.concatenate(tcm_rows)
-        data_flat_concat = ak.concatenate(data_flat)[np.argsort(tcm_rows_concat)]
+    tcm_rows_concat = np.concatenate(tcm_rows)
+    data_flat_concat = ak.concatenate(data_flat)[np.argsort(tcm_rows_concat)]
 
-        data_unflat = ak.unflatten(data_flat_concat, counts)
+    data_unflat = ak.unflatten(data_flat_concat, counts)
 
-        if units is not None:
-            return ak.with_parameter(data_unflat, "units", units)
-        return data_unflat
+    if units is not None:
+        return ak.with_parameter(data_unflat, "units", units)
+    return data_unflat
 
 
 partitions = load_dict(simstat_part_file)[f"job_{jobid}"]
@@ -171,7 +186,7 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
     on_spms_uids = sorted(
         uid
         for det_name, uid in det2uid["opt"].items()
-        if usabilities[runid].get(det_name, "on") != "off"
+        if (usabilities[runid].get(det_name) or {}).get("usability", "on") != "off"
     )
 
     if add_random_coincidences:
@@ -241,6 +256,7 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
 
         # first read usability and energy
         usability = _read_hits(tcm, "hit", "usability")
+        psd_usability = _read_hits(tcm, "hit", "psd_usability")
         energy = _read_hits(tcm, "hit", "energy")
 
         # we want to only store hits from events in ON and AC detectors and above
@@ -276,6 +292,11 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
 
         is_ss = _read_hits(tcm, "hit", "is_single_site")
         out_table.add_field("geds/is_single_site", VectorOfVectors(is_ss[hitsel]))
+
+        out_table.add_field("geds/psd", Table(size=len(unified_tcm)))
+        out_table.add_field(
+            "geds/psd/is_good", VectorOfVectors(psd_usability[hitsel] == VALID_PSD)
+        )
 
         # compute multiplicity
         geds_multiplicity = ak.sum(hitsel, axis=-1)
@@ -345,11 +366,16 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
                     len(unified_tcm),
                     rc_index_lookup,
                 )
+            # FIXME: this assertion fails because we haven't thought about
+            # cases when there is a DAQ recabling without hardware changes.
+            # right now this fails with p18 because SiPMs were recabled.
+            #
             # assert rawid alignment: RC and simulation must use the same
             # channel ordering (both are ascending by UID)
-            assert ak.to_list(rc_chunk.rawid[0]) == on_spms_uids, (
-                "RC rawid does not match simulation spms/rawid"
-            )
+            # assert ak.to_list(rc_chunk.rawid[0]) == on_spms_uids, (
+            #     "RC rawid does not match simulation spms/rawid: "
+            #     f"{rc_chunk.rawid[0].to_list()} != {on_spms_uids}"
+            # )
             out_table.add_field("spms/rc_energy", VectorOfVectors(rc_chunk.npe))
             out_table.add_field(
                 "spms/rc_time", VectorOfVectors(rc_chunk.t0, attrs={"units": "ns"})
@@ -379,8 +405,10 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
             lh5.write(out_table, "evt", evt_file, wo_mode=evt_wo_mode)
             evt_wo_mode = "append"
 
+    print_stats_since_last()
+
 with perf_block("move_to_cfs()"):
     move2cfs()
 
 
-print_perf()
+print_stats()

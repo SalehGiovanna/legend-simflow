@@ -16,18 +16,16 @@
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import dbetto
 from dbetto import AttrsDict
 from legendmeta.police import validate_dict_schema
-from snakemake.logging import logger as smklog
 
 from . import SimflowConfig, patterns
 from .exceptions import SimflowConfigError
-from .metadata import get_runlist, get_simconfig, runinfo, simpars
+from .metadata import encode_psd_usability, get_runlist, get_simconfig, runinfo, simpars
 
 log = logging.getLogger(__name__)
 
@@ -223,8 +221,6 @@ def gen_list_of_all_hpges_valid_for_modeling(
 
     i.e. a mapping ``runid -> hpge -> voltage``.
     """
-    start = time.time()
-
     all_runids = set()
     for simid in gen_list_of_all_simids(config):
         all_runids.update(get_runlist(config, simid))
@@ -233,11 +229,6 @@ def gen_list_of_all_hpges_valid_for_modeling(
     for runid in sorted(all_runids):
         hpges = gen_list_of_hpges_valid_for_modeling(config, runid)
         out[runid] = {hpge: get_hpge_voltage(config, hpge, runid) for hpge in hpges}
-
-    msg = (
-        f"gen_list_of_all_hpges_valid_for_modeling() took {time.time() - start:.1f} sec"
-    )
-    smklog.debug(msg)
 
     if write_to_file is not None:
         Path(write_to_file).parent.mkdir(parents=True, exist_ok=True)
@@ -251,19 +242,27 @@ def gen_list_of_all_hpges_valid_for_modeling(
 
 def gen_list_of_all_usabilities(
     config: SimflowConfig,
-) -> AttrsDict[str, AttrsDict[str, str]]:
-    """Get usability for all detectors and all runs defined in the Simflow.
+) -> AttrsDict[str, AttrsDict[str, dict]]:
+    """Generate a usability mapping for all detectors and all runs defined in the Simflow.
 
-    Use this function to build a cache, in case repeated calls to
-    :func:`.metadata.usability` are needed. Returns the following dictionary:
+    Use this function to build a cache to avoid repeated metadata lookups.
+    Returns the following dictionary:
 
     .. code-block::
 
         {
-          'l200-p03-r000-phy': {'V00048A': "on", ...},
-          'l200-p03-r001-phy': {'V00050B': "off", ...},
+          'l200-p03-r000-phy': {
+            'V00048A': {'usability': 'on', 'psd_usability': 0},
+            ...
+          },
           ...
         }
+
+    ``psd_usability`` is an integer encoding of the ``psd.status.low_aoe``
+    field in the channel map status for germanium detectors (see
+    ``legendsimflow.metadata.PSD_USABILITY_CODE``). If the field is absent it
+    defaults silently to ``"valid"``; if it has an unexpected value a warning
+    is emitted and it also defaults to ``"valid"``.
 
     Parameters
     ----------
@@ -271,8 +270,6 @@ def gen_list_of_all_usabilities(
         Simflow configuration object.
 
     """
-    start = time.time()
-
     all_runids = set()
     for simid in gen_list_of_all_simids(config):
         all_runids.update(get_runlist(config, simid))
@@ -282,13 +279,27 @@ def gen_list_of_all_usabilities(
         out_dict[runid] = {}
         rinfo = runinfo(config.metadata, runid)
         chmap = config.metadata.hardware.configuration.channelmaps.on(rinfo.start_key)
+        statuses = config.metadata.datasets.statuses.on(rinfo.start_key)
         for chname in chmap:
-            statuses = config.metadata.datasets.statuses.on(rinfo.start_key)
             if chname in statuses:
-                out_dict[runid][chname] = statuses[chname].usability
+                usability = statuses[chname].usability
 
-    msg = f"get_all_usabilities() took {time.time() - start:.1f} sec"
-    smklog.debug(msg)
+                entry = {"usability": usability}
+                if chmap[chname].system == "geds":
+                    psd_usability = "valid"
+                    try:
+                        psd_status = statuses[chname].psd.status.low_aoe
+                        try:
+                            encode_psd_usability(psd_status)  # validate
+                            psd_usability = psd_status
+                        except KeyError:
+                            msg = f"unexpected psd.status.low_aoe value {psd_status!r} for {chname} in {runid}, defaulting to valid"
+                            log.warning(msg)
+                    except AttributeError:
+                        pass
+                    entry["psd_usability"] = psd_usability
+
+                out_dict[runid][chname] = entry
 
     return AttrsDict(out_dict)
 
