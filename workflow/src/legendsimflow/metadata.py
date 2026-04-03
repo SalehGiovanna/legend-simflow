@@ -37,6 +37,12 @@ USABILITY_CODE = {
     "off": 2,
 }
 
+PSD_USABILITY_CODE = {
+    "valid": 0,
+    "present": 1,
+    "missing": 2,
+}
+
 
 def get_simconfig(
     config: SimflowConfig,
@@ -165,6 +171,17 @@ def decode_usability(usability_code: int) -> str:
     """Decode the HPGe usability (see :func:`encode_usability`)."""
     _codes = {v: k for k, v in USABILITY_CODE.items()}
     return _codes[usability_code]
+
+
+def encode_psd_usability(psd_usability: str) -> int:
+    """Encode the PSD usability in an int."""
+    return PSD_USABILITY_CODE[psd_usability]
+
+
+def decode_psd_usability(psd_usability_code: int) -> str:
+    """Decode the PSD usability (see :func:`encode_psd_usability`)."""
+    _codes = {v: k for k, v in PSD_USABILITY_CODE.items()}
+    return _codes[psd_usability_code]
 
 
 def parse_runid(runid: str) -> (str, int, int, str):

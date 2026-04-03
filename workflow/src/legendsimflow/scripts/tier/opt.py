@@ -222,9 +222,13 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
                 sipm_uid = sens_tables[sipm].uid
 
                 # get the usability
-                usability = usabilities[runid][sipm]
-                if usability is None:
+                det_info = usabilities[runid][sipm]
+                if det_info is None:
+                    msg = f"usability not found for {sipm} in {runid}, defaulting to on"
+                    log.warning(msg)
                     usability = "on"
+                else:
+                    usability = det_info.usability
 
                 msg = f"applying optical map for SiPM {sipm}"
                 log.debug(msg)
