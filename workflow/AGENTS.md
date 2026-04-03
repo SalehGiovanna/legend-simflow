@@ -18,19 +18,16 @@
 
 ## Snakemake scripts
 
-Always sanitize the `snakemake` object at the top of every script:
+Every script under `workflow/src/legendsimflow/scripts/` must be runnable both
+from Snakemake and directly from the command line. Follow the pattern in
+`scripts/tier/cvt.py` and the full checklist in `docs/source/developer.md`.
 
-```python
-from legendsimflow import nersc
-
-args = nersc.dvs_ro_snakemake(snakemake)  # noqa: F821
-```
-
-- Assign `snakemake` sub-objects to dedicated variables near the start of the
-  file for readability
-- Global script parameters should use ALL_CAPS variable names
-- Large output files should be written to scratch first (`make_on_scratch()`
-  from `nersc.py`)
+- Must accept `--simflow-config` (alias `--config`) and `--log-file` (optional)
+- Call `log_script_invocation` right after setting up logging
+- Large output files: write to scratch first via `make_on_scratch()`
+  (`nersc.py`)
+- Add a `tier-<name>` pixi task and a test in
+  `tests/scripts/test_tier_<name>.py`
 - Add profile logging in disk/compute-intensive scripts (`profile.py`)
 
 ## Snakefiles
