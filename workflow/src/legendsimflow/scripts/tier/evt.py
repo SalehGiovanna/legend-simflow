@@ -376,10 +376,10 @@ for runid_idx, (runid, evt_idx_range) in enumerate(partitions.items()):
             #     "RC rawid does not match simulation spms/rawid: "
             #     f"{rc_chunk.rawid[0].to_list()} != {on_spms_uids}"
             # )
-            # out_table.add_field("spms/rc_energy", VectorOfVectors(rc_chunk.npe))
-            # out_table.add_field(
-            #     "spms/rc_time", VectorOfVectors(rc_chunk.t0, attrs={"units": "ns"})
-            # )
+            out_table.add_field("spms/rc_energy", VectorOfVectors(rc_chunk.npe))
+            out_table.add_field(
+                "spms/rc_time", VectorOfVectors(rc_chunk.t0, attrs={"units": "ns"})
+            )
 
         # total amount of light per event
         energy_sum = ak.sum(ak.sum(energy[pesel][chansel], axis=-1), axis=-1)
