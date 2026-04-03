@@ -68,7 +68,7 @@ dependencies = [
     "reboost >=0.10.3,<0.11",
     "revertex >=0.1.2",
     "ruamel.yaml",
-    "snakemake >=9.17,<9.18",
+    "snakemake >=9.19,<9.20",
     "snakemake-storage-plugin-fs",
     "snakemake-executor-plugin-slurm",
     "snakemake-logger-plugin-rich",
@@ -124,7 +124,7 @@ psutil = "*"
 "ruamel.yaml" = "*"
 
 # execution
-snakemake = ">=9.17,<9.18"
+snakemake = ">=9.19,<9.20"
 snakemake-storage-plugin-fs = "*"
 snakemake-executor-plugin-slurm = "*"
 # snakemake-logger-plugin-rich = "..."  # not on conda-forge
