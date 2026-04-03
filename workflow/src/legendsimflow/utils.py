@@ -102,7 +102,9 @@ def apply_path_defaults(paths: dict) -> None:
         paths["dtmaps"] = paths["pars"] / "hpge/dtmaps"
 
 
-def init_simflow_context(raw_config: dict, workflow=None) -> AttrsDict:
+def init_simflow_context(
+    raw_config: dict | AttrsDict | str | Path, workflow=None
+) -> AttrsDict:
     """Pre-process and sanitize the Simflow configuration.
 
     Returns a dictionary with useful objects to be used in the Simflow
@@ -120,7 +122,7 @@ def init_simflow_context(raw_config: dict, workflow=None) -> AttrsDict:
     Parameters
     ----------
     raw_config
-        path to the Simflow configuration file.
+        Simflow configuration mapping or path to a configuration file.
     workflow
         Snakemake workflow instance. If None, occurrences of ``$_`` in the
         configuration will be replaced with the path to the current working
@@ -131,62 +133,85 @@ def init_simflow_context(raw_config: dict, workflow=None) -> AttrsDict:
         msg = "you must set a config file with --configfile"
         raise RuntimeError(msg)
 
-    raw_config = _merge_defaults(
-        raw_config,
-        {"benchmark": {"enabled": False}, "nersc": {"dvs_ro": False, "scratch": False}},
-    )
+    basedir = Path(workflow.basedir) if workflow is not None else Path().resolve()
 
-    if workflow is None:
-        ldfs.subst_vars(
-            raw_config,
-            var_values={"_": Path().resolve()},
-            use_env=True,
-            ignore_missing=False,
-        )
+    if isinstance(raw_config, (str, Path)):
+        if workflow is None:
+            basedir = Path(raw_config).resolve().parent
+        raw_config = dbetto.utils.load_dict(raw_config)
+
+    if not isinstance(raw_config, (AttrsDict, dict)):
+        msg = "raw_config must be a dict, AttrsDict, or path to a config file"
+        raise TypeError(msg)
+
+    if isinstance(raw_config, AttrsDict) and isinstance(
+        raw_config.get("metadata"), LegendMetadata
+    ):
+        config = raw_config
     else:
-        ldfs.workflow.utils.subst_vars_in_snakemake_config(workflow, raw_config)
+        raw_config = _merge_defaults(
+            dict(raw_config),
+            {
+                "benchmark": {"enabled": False},
+                "nersc": {"dvs_ro": False, "scratch": False},
+            },
+        )
 
-    config = AttrsDict(raw_config)
+        if workflow is None:
+            ldfs.subst_vars(
+                raw_config,
+                var_values={"_": basedir},
+                use_env=True,
+                ignore_missing=False,
+            )
+        else:
+            ldfs.workflow.utils.subst_vars_in_snakemake_config(workflow, raw_config)
 
-    # convert all strings in the "paths" block to pathlib.Path
-    config["paths"] = _make_path(config.paths)
+        config = AttrsDict(raw_config)
 
-    # fill in optional paths derived from paths.pars
-    apply_path_defaults(config["paths"])
+        # convert all strings in the "paths" block to pathlib.Path
+        config["paths"] = _make_path(config.paths)
 
-    if "l200data" in config.paths:
-        config["paths"]["l200data"] = nersc.dvs_ro(config, config.paths.l200data)
+        # fill in optional paths derived from paths.pars
+        apply_path_defaults(config["paths"])
 
-    # NOTE: this will attempt a clone of legend-metadata, if the directory does not exist
-    metadata = LegendMetadata(config.paths.metadata, lazy=True)
+        if "l200data" in config.paths:
+            config["paths"]["l200data"] = nersc.dvs_ro(config, config.paths.l200data)
 
-    if "legend_metadata_version" in config:
-        try:
-            metadata.checkout(config.legend_metadata_version)
-        except GitCommandError as e:
-            log.warning("could not checkout legend-metadata version: %s", e)
+        # NOTE: this will attempt a clone of legend-metadata, if the directory does not exist
+        metadata = LegendMetadata(config.paths.metadata, lazy=True)
 
-    # NOTE: read only path on NERSC, we are not going to modify the db
-    # NOTE: don't use lazy=True, we need a fully functional TextDB
-    config["metadata"] = LegendMetadata(nersc.dvs_ro(config, config.paths.metadata))
+        if "legend_metadata_version" in config:
+            try:
+                metadata.checkout(config.legend_metadata_version)
+            except GitCommandError as e:
+                log.warning("could not checkout legend-metadata version: %s", e)
+
+        # NOTE: read only path on NERSC, we are not going to modify the db
+        # NOTE: don't use lazy=True, we need a fully functional TextDB
+        config["metadata"] = LegendMetadata(nersc.dvs_ro(config, config.paths.metadata))
 
     # make sure all simflow plots are made with a consistent style
     # I have verified only that this variable is visible in scripts (not shell directives)
-    os.environ["MPLCONFIGDIR"] = f"{workflow.basedir}/src/legendsimflow"
-
-    proctime = (
-        "benchmark"
-        if config.benchmark.enabled
-        else datetime.now().strftime("%Y%m%dT%H%M%SZ")
+    mpl_config_dir = (
+        Path(__file__).resolve().parent
+        if workflow is None
+        else basedir / "src/legendsimflow"
     )
-    config["_proctime"] = proctime
+    os.environ["MPLCONFIGDIR"] = str(mpl_config_dir)
 
-    return AttrsDict(
-        {
-            "config": config,
-            "basedir": workflow.basedir,
-        }
-    )
+    if "_proctime" not in config:
+        benchmark_enabled = bool(
+            config.get("benchmark", AttrsDict({"enabled": False})).get("enabled", False)
+        )
+        proctime = (
+            "benchmark"
+            if benchmark_enabled
+            else datetime.now().strftime("%Y%m%dT%H%M%SZ")
+        )
+        config["_proctime"] = proctime
+
+    return AttrsDict({"config": config, "basedir": basedir})
 
 
 def setup_logdir_link(config: SimflowConfig) -> None:

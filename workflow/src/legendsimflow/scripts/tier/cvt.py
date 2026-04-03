@@ -15,34 +15,63 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import argparse
 import shutil
 
 import legenddataflowscripts as ldfs
 import legenddataflowscripts.utils
 from lgdo import lh5
+from snakemake_argparse_bridge import snakemake_compatible
 
-from legendsimflow import nersc
-
-args = nersc.dvs_ro_snakemake(snakemake)  # noqa: F821
-
-evt_files = args.input
-cvt_file = args.output[0]
-log_file = args.log[0]
-metadata = args.config.metadata
-
-cvt_file, move2cfs = nersc.make_on_scratch(args.config, cvt_file)
-
-BUFFER_LEN = "500*MB"
+from legendsimflow import nersc, utils
+from legendsimflow.scripts import log_script_invocation
 
 
-# setup logging
-log = ldfs.utils.build_log(metadata.simprod.config.logging, log_file)
+@snakemake_compatible(
+    mapping={
+        "evt_files": "input",
+        "cvt_file": "output[0]",
+        "log_file": "log[0]",
+        "simflow_config": "config",
+    }
+)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build the cvt tier.")
+    parser.add_argument(
+        "--evt-files", nargs="+", required=True, help="input evt tier files"
+    )
+    parser.add_argument("--cvt-file", required=True, help="output cvt tier file")
+    parser.add_argument("--log-file", default=None, help="log file")
+    parser.add_argument(
+        "--simflow-config",
+        "--config",
+        dest="simflow_config",
+        required=True,
+        help="simflow config YAML path",
+    )
+    args = parser.parse_args()
 
-if len(evt_files) == 1:
-    shutil.copy(evt_files[0], cvt_file)
-else:
-    for table in lh5.ls(evt_files[0]):
-        for chunk in lh5.LH5Iterator(evt_files, table, buffer_len=BUFFER_LEN):
-            lh5.write(chunk, table, cvt_file, wo_mode="append")
+    config = utils.init_simflow_context(args.simflow_config, workflow=None).config
 
-move2cfs()
+    evt_files = nersc.dvs_ro(config, list(args.evt_files))
+    cvt_file, move2cfs = nersc.make_on_scratch(config, args.cvt_file)
+    log_file = args.log_file
+
+    BUFFER_LEN = "500*MB"
+
+    log = ldfs.utils.build_log(config.metadata.simprod.config.logging, log_file)
+    log_script_invocation(log, "tier-cvt", parser, args)
+    log.info("starting cvt merge")
+
+    if len(evt_files) == 1:
+        shutil.copy(evt_files[0], cvt_file)
+    else:
+        for table in lh5.ls(evt_files[0]):
+            for chunk in lh5.LH5Iterator(evt_files, table, buffer_len=BUFFER_LEN):
+                lh5.write(chunk, table, cvt_file, wo_mode="append")
+
+    move2cfs()
+
+
+if __name__ == "__main__":
+    main()

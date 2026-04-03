@@ -7,6 +7,9 @@ Python tests are stored in `tests/` and managed with Pytest. Julia tests are in
   package units
 - `test_workflow.py`: integration Snakemake testing of the workflow with a dummy
   production (configured in `tests/dummyprod`) that can be tested in CI
+- `scripts/`: tests for the tier scripts in
+  `workflow/src/legendsimflow/scripts/`, exercising their standalone CLI
+  entrypoints
 - `l200data/`: test data for the LEGEND-200 data production
 
 ## Test data construction

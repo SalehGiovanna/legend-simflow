@@ -90,6 +90,39 @@ target and must always be triggered explicitly.
 
 Find some useful Snakemake command-line options at the bottom of this page.
 
+## Running tier scripts standalone
+
+Tier scripts can be run directly from the command line, outside of Snakemake.
+This is useful to quickly reproduce or debug a failing job: at the start of
+every run, each script logs the exact command needed to re-run it manually.
+
+Each supported script has a dedicated pixi task named `tier-<name>`:
+
+```console
+> pixi run tier-<name> [options]
+```
+
+For example, to run the `cvt` script:
+
+```console
+> pixi run tier-cvt --evt-files <evt-files> --cvt-file <cvt-file> \
+      --simflow-config <path-to-simflow-config.yaml>
+```
+
+Pass `--help` to any task to see its full list of options:
+
+```console
+> pixi run tier-cvt --help
+```
+
+All scripts share the following conventions:
+
+- `--simflow-config` (alias `--config`) accepts the same configuration file that
+  the Snakemake workflow uses as `--configfile`. Variable substitution (e.g.
+  `$_`) is performed relative to the directory containing the config file,
+  matching the behavior of the Snakemake workflow.
+- `--log-file` is optional: if omitted, log output goes to the console.
+
 ## Selective step execution with `make_steps`
 
 The `make_steps` configuration option controls which workflow steps are loaded

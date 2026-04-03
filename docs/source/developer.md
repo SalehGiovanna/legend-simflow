@@ -142,6 +142,68 @@ submitting a pull request.
 - Every new page must be referenced in a `toctree` directive to avoid orphan
   page warnings.
 
+## Adding a new tier script
+
+Tier scripts live in `workflow/src/legendsimflow/scripts/tier/`. Every script
+must be runnable both from Snakemake and directly from the command line (see
+{doc}`/manual/prod` for the user-facing documentation of this feature).
+
+The required pattern uses the `snakemake-argparse-bridge` library. Here is the
+minimal structure for a new script `tier/foo.py`:
+
+```python
+import argparse
+
+import legenddataflowscripts as ldfs
+from snakemake_argparse_bridge import snakemake_compatible
+
+from legendsimflow import nersc, utils
+from legendsimflow.scripts import log_script_invocation
+
+
+@snakemake_compatible(
+    mapping={
+        "input_files": "input",
+        "output_file": "output[0]",
+        "log_file": "log[0]",
+        "simflow_config": "config",
+    }
+)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build the foo tier.")
+    parser.add_argument("--input-files", nargs="+", required=True)
+    parser.add_argument("--output-file", required=True)
+    parser.add_argument("--log-file", default=None)
+    parser.add_argument(
+        "--simflow-config", "--config", dest="simflow_config", required=True
+    )
+    args = parser.parse_args()
+
+    config = utils.init_simflow_context(args.simflow_config, workflow=None).config
+    log = ldfs.utils.build_log(config.metadata.simprod.config.logging, args.log_file)
+    log_script_invocation(log, "tier-foo", parser, args)
+
+    # ... script logic ...
+
+
+if __name__ == "__main__":
+    main()
+```
+
+After adding the script, also:
+
+1. **Register the Snakemake rule** in the appropriate `workflow/rules/*.smk`
+   file, using `script: "../src/legendsimflow/scripts/tier/foo.py"` and
+   providing `input`, `output`, `log`, and `config` fields that match the
+   `@snakemake_compatible` mapping.
+2. **Add a pixi task** in `pyproject.toml` so users can run the script
+   standalone:
+   ```toml
+   tier-foo = { cmd = "python -m legendsimflow.scripts.tier.foo" }
+   ```
+3. **Add a test** in `tests/scripts/test_tier_foo.py` following the pattern in
+   `tests/scripts/test_tier_cvt.py`.
+
 ## Contributing
 
 ### Git workflow
