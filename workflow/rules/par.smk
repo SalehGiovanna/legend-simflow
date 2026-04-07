@@ -15,8 +15,6 @@
 
 """Rules to compute the simulation parameters (`par` step)."""
 
-from pathlib import Path
-
 from legendsimflow import aggregate, hpge_pars, patterns
 
 
@@ -130,7 +128,7 @@ rule merge_hpge_drift_time_maps:
         "Merging HPGe drift time map files for {wildcards.runid}"
     input:
         lambda wc: aggregate.gen_list_of_dtmaps(
-            config, wc.runid, cache=SIMFLOW_CONTEXT.modelable_hpges
+            config, wc.runid, cache=smk_load_hpge_cache()
         ),
     output:
         patterns.output_dtmap_merged_filename(config),
@@ -245,15 +243,19 @@ rule merge_current_pulse_model_pars:
         "Merging current model parameters in {wildcards.runid}"
     input:
         lambda wc: aggregate.gen_list_of_currmods(
-            config, wc.runid, cache=SIMFLOW_CONTEXT.modelable_hpges
+            config, wc.runid, cache=smk_load_hpge_cache()
         ),
+    params:
+        # materialize the HPGe list here so the run: block can map file
+        # indices back to detector names without calling back into the cache
+        hpges=lambda wc: list(smk_load_hpge_cache()[wc.runid]),
     output:
         patterns.output_currmod_merged_filename(config),
     run:
         import dbetto
 
         # NOTE: this is guaranteed to be sorted as in the input file list
-        hpges = list(SIMFLOW_CONTEXT.modelable_hpges[wildcards.runid])
+        hpges = params.hpges
 
         out_dict = {}
         for i, f in enumerate(input):
