@@ -2,15 +2,16 @@ version: 1
 disable_existing_loggers: false
 
 handlers:
-  dataflow:
-    class: logging.NullHandler
+  console:
+    class: logging.StreamHandler
+    stream: ext://sys.stdout
 
 loggers:
   prod:
     level: DEBUG
-    handlers: [dataflow]
+    handlers: [console]
     propagate: no
 
 root:
   level: INFO
-  handlers: [dataflow]
+  handlers: [console]
