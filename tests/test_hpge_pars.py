@@ -258,7 +258,7 @@ def test_get_waveform_maxima():
     assert np.all(maxi < 2)
 
 
-def test_get_noise_waveforms(legend_testdata):
+def test_get_noise_maxima_and_sample(legend_testdata):
     raw_file = legend_testdata.get_path(
         "lh5/prod-ref-l200/generated/tier/raw/phy/p03/r001/l200-p03-r001-phy-20230322T160139Z-tier_raw.lh5"
     )
@@ -266,17 +266,48 @@ def test_get_noise_waveforms(legend_testdata):
         "lh5/prod-ref-l200/generated/tier/hit/phy/p03/r001/l200-p03-r001-phy-20230322T160139Z-tier_hit.lh5"
     )
 
-    wfs = hpge_pars.get_noise_waveforms(
+    template = np.zeros(1000)
+    template[200] = 1.0  # simple spike template
+
+    sample_wfs, a_max = hpge_pars.get_noise_maxima_and_sample(
         [raw_file],
         [hit_file],
         lh5_group="ch1084803/raw",
         energy_var="cuspEmax_ctc_cal",
         dsp_config=None,
         dsp_output="waveform",
+        template=template,
+        sample_size=5,
     )
 
-    assert wfs is not None
-    assert np.shape(wfs)[1] == 1000
+    assert sample_wfs.ndim == 2
+    assert sample_wfs.shape[0] <= 5
+    assert sample_wfs.shape[1] == 1000
+    assert len(a_max) > 0
+    assert a_max.ndim == 1
+
+
+def test_iter_noise_waveforms(legend_testdata):
+    raw_file = legend_testdata.get_path(
+        "lh5/prod-ref-l200/generated/tier/raw/phy/p03/r001/l200-p03-r001-phy-20230322T160139Z-tier_raw.lh5"
+    )
+    hit_file = legend_testdata.get_path(
+        "lh5/prod-ref-l200/generated/tier/hit/phy/p03/r001/l200-p03-r001-phy-20230322T160139Z-tier_hit.lh5"
+    )
+
+    wfs = list(
+        hpge_pars._iter_noise_waveforms(
+            [raw_file],
+            [hit_file],
+            lh5_group="ch1084803/raw",
+            energy_var="cuspEmax_ctc_cal",
+            dsp_config=None,
+            dsp_output="waveform",
+        )
+    )
+
+    assert len(wfs) > 0
+    assert len(wfs[0]) == 1000
 
 
 def test_get_aoe():
