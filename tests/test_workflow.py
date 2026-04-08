@@ -35,7 +35,13 @@ def test_stp_workflow():
             snakefile=dummyprod / "workflow/Snakefile",
             workdir=dummyprod,
             config_settings=smkapi.ConfigSettings(
-                configfiles=(dummyprod / "simflow-config-stp.yaml",)
+                configfiles=(dummyprod / "simflow-config.yaml",),
+                config={
+                    "experiment": "l200p03",
+                    "runlist": ["l200-p03-r000-phy"],
+                    "make_steps": ["vtx", "stp"],
+                    "benchmark": {"enabled": True, "n_primaries": {"stp": 1000}},
+                },
             ),
             storage_settings=smkapi.StorageSettings(),
             resource_settings=smkapi.ResourceSettings(cores=1),
