@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ def test_dag():
 
 
 @pytest.mark.needs_remage
+@pytest.mark.skipif(shutil.which("remage") is None, reason="remage not installed")
 def test_stp_workflow():
     output = smkapi.OutputSettings(verbose=False)
 

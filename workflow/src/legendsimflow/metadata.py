@@ -303,7 +303,7 @@ def get_vtx_simconfig(config: SimflowConfig, simid: str) -> AttrsDict:
 
 
 def get_sanitized_fccd(metadata: LegendMetadata, det_name: str) -> float:
-    """Return the FCCD value for `det_name`, falling back to 1 mm if metadata is missing.
+    """Return the FCCD value for `det_name`, falling back to 1 mm if the FCCD field is absent.
 
     Parameters
     ----------
