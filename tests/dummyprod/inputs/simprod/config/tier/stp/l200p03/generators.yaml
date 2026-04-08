@@ -4,29 +4,9 @@ K40:
   - /gps/energy 0 eV
   - /gps/ion 19 40
 
-K42:
-  - /RMG/Generator/Select GPS
-  - /gps/particle ion
-  - /gps/energy 0 eV
-  - /gps/ion 19 42
-
-Ra224_to_Pb208:
-  - /RMG/Generator/Select GPS
-  - /gps/particle ion
-  - /gps/energy 0 eV
-  - /gps/ion 88 224
-  - /process/had/rdm/nucleusLimits 208 224 81 88
-
 Rn222_to_Po214:
   - /RMG/Generator/Select GPS
   - /gps/particle ion
   - /gps/energy 0 eV
   - /gps/ion 86 222
   - /process/had/rdm/nucleusLimits 214 222 82 86
-
-Ra228_to_Ac228:
-  - /RMG/Generator/Select GPS
-  - /gps/particle ion
-  - /gps/energy 0 eV
-  - /gps/ion 89 228
-  - /process/had/rdm/nucleusLimits 228 228 88 89
