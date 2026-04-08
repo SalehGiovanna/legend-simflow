@@ -43,8 +43,12 @@ To run only the Julia tests:
 > pixi run -e test test-julia
 ```
 
-::: note The tests should be run in the pixi "test" environment to have access
-to all test dependencies! :::
+:::{note}
+
+The tests should be run in the pixi "test" environment to have access to all
+test dependencies!
+
+:::
 
 To run a specific Python test or test function:
 
