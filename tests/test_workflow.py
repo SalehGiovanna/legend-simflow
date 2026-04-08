@@ -46,5 +46,5 @@ def test_stp_workflow():
             storage_settings=smkapi.StorageSettings(),
             resource_settings=smkapi.ResourceSettings(cores=1),
         )
-        dag = wf_api.dag()
+        dag = wf_api.dag(smkapi.DAGSettings(forceall=True))
         dag.execute_workflow()
