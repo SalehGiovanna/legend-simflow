@@ -12,13 +12,20 @@ Python tests are stored in `tests/` and managed with Pytest. Julia tests are in
   entrypoints
 - `l200data/`: test data for the LEGEND-200 data production
 
-## Test data construction
+## Test data
 
-`conftest.py` checks out a pinned commit of `legend-testdata` and copies the
-relevant subdirectories (hardware metadata, datasets, ...) into
-`tests/dummyprod/inputs/` using `_copy_skip_existing`, which skips files that
-already exist at the destination. Those directories are gitignored, so they
-always reflect the checked-out testdata commit and cannot be overridden by
-committed files. When updating the testdata commit, verify that the new content
-is consistent with the test expectations (channelmap validity dates, detector
-lists, dataset entries, ...).
+`tests/dummyprod/inputs/` contains a standalone metadata instance (hardware
+detector specs, channelmaps, datasets) committed directly to the repository.
+
+The dummy production uses two experiments:
+
+- `legend`: a generic experiment name used for unit tests and DAG-building
+  tests; its runlist uses real p02 run IDs from the metadata but is **not**
+  intended to run an actual production
+- `l200p03`: used by the `test_stp_workflow` integration test, which exercises
+  the full vtx→stp pipeline with remage using the public `legend-pygeom-l200`
+  geometry
+
+`legend_testdata` (from `legendtestdata`) is still available as a pytest fixture
+for tests that require LH5 data files or other binary assets from the testdata
+repository (e.g. `test_reboost.py`, `test_hpge_pars.py`).

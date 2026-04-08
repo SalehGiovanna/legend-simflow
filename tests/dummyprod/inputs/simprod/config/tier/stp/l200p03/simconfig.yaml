@@ -1,0 +1,13 @@
+birds_nest_K40:
+  template: $_/template.mac
+  generator: ~defines:K40
+  confinement: ~defines:birds_nest
+  primaries_per_job: 10_000
+  number_of_jobs: 1
+
+hpge_bulk_Rn222_to_Po214:
+  template: $_/template.mac
+  generator: ~defines:Rn222_to_Po214
+  confinement: ~defines:hpge_bulk
+  primaries_per_job: 10_000
+  number_of_jobs: 1

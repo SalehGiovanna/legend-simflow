@@ -8,7 +8,7 @@ birds_nest_K40:
 pen_plates_Ra224_to_Pb208:
   template: $_/template.mac
   generator: ~defines:Ra224_to_Pb208
-  confinement: ~volumes.bulk:pen.*
+  confinement: ~volumes.bulk:hpge_assembly_plate_pen.*
   primaries_per_job: 10_000
   number_of_jobs: 3
 
@@ -23,8 +23,8 @@ phbr_surface_Ra228_to_Ac228:
   template: $_/template.mac
   generator: ~defines:Ra228_to_Ac228
   confinement:
-    - ~volumes.surface:phbr_spring.*
-    - ~volumes.surface:phbr_washer.*
+    - ~volumes.surface:hpge_assembly_phbr_spring.*
+    - ~volumes.surface:hpge_assembly_phbr_washer.*
   primaries_per_job: 10_000
   number_of_jobs: 5
 
