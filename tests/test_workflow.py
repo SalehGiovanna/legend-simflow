@@ -7,16 +7,11 @@ from snakemake import api as smkapi
 
 dummyprod = Path(__file__).parent / "dummyprod"
 
-pytestmark = [
-    pytest.mark.xfail(run=True, reason="requires a remage installation"),
-    pytest.mark.needs_remage,
-]
-
 
 def test_dag():
     output = smkapi.OutputSettings(verbose=False)
 
-    # build workflow and DAG
+    # build workflow and DAG, execute with touch executor (no remage needed)
     with smkapi.SnakemakeApi(output) as api:
         wf_api = api.workflow(
             snakefile=dummyprod / "workflow/Snakefile",
@@ -30,6 +25,9 @@ def test_dag():
         dag = wf_api.dag()
         dag.execute_workflow(executor="touch")
 
+
+@pytest.mark.needs_remage
+def test_stp_workflow():
     output = smkapi.OutputSettings(verbose=False)
 
     with smkapi.SnakemakeApi(output) as api:

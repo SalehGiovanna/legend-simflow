@@ -189,6 +189,7 @@ outputs = [".pixi/precompile.stamp"]
 [tool.pixi.feature.test.tasks]
 test-python = { cmd = "pytest -vvv" }
 test-julia = { cmd = "julia ../legendsimflow/scripts/init-julia-env.jl && julia --project=. -e 'using Pkg; Pkg.test()'", cwd = "workflow/src/LegendSimflow.jl" }
+test-workflow = { cmd = "pytest -vvv -m needs_remage --runxfail" }
 test = { depends-on = ["test-python", "test-julia"] }
 
 [tool.uv.workspace]
