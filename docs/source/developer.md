@@ -61,7 +61,16 @@ To run a specific Python test or test function:
 
 The Python test suite includes both unit tests (in `tests/`) and integration
 tests that exercise the Snakemake workflow with a dummy production configured in
-`tests/dummyprod`. Test data for LEGEND-200 is stored in `tests/l200data/`.
+`tests/dummyprod`. The dummy production defines two experiments:
+
+- `legend`: a generic experiment used for unit tests and DAG-building tests; its
+  runlist contains real p02 run IDs but is not intended to run an actual
+  production
+- `l200p03`: used by the `test_stp_workflow` integration test, which exercises
+  the full vtx→stp pipeline with remage using the public `legend-pygeom-l200`
+  geometry
+
+Test data for LEGEND-200 is stored in `tests/l200data/`.
 
 :::
 

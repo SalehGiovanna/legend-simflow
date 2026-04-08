@@ -25,7 +25,7 @@ def legend_testdata():
 
 @pytest.fixture(scope="session")
 def test_generate_gdml(config):
-    geom_config = config.metadata.simprod.config.geom["l200p02-geom-config"]
+    geom_config = config.metadata.simprod.config.geom["legend-geom-config"]
 
     return core.construct(
         use_detailed_fiber_model=False, config=geom_config, public_geometry=True
