@@ -19,6 +19,7 @@ import dbetto
 import legenddataflowscripts as ldfs
 import legenddataflowscripts.utils
 import numpy as np
+from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from reboost.hpge.psd import _current_pulse_model as current_pulse_model
 
@@ -93,6 +94,8 @@ with PdfPages(plot_file) as pdf:
     fig.suptitle(f"{hpge} in {runid}: drift-time selection for current-pulse fit")
     decorate(fig)
     pdf.savefig()
+    plt.close(fig)
+    del all_dts, selected_dts
 
     fig, ax = hpge_pars.plot_currmod_fit_result(times_list, current_list, x, y)
 
@@ -104,6 +107,8 @@ with PdfPages(plot_file) as pdf:
     # also save with a narrower range
     ax.set_xlim(-400, 300)
     pdf.savefig()
+    plt.close(fig)
+    del times_list, current_list
 
     logger.info("... adding the mean aoe")
 
@@ -116,23 +121,25 @@ with PdfPages(plot_file) as pdf:
 
     temp = current_pulse_model(np.linspace(-500, 1000, 1501), *popt)
 
-    noise_wfs = hpge_pars.get_noise_waveforms(
+    noise_sample, a_max = hpge_pars.get_noise_maxima_and_sample(
         files.raw,
         files.hit,
         lh5_group,
         str(dsp_cfg_file),
         "curr_av",
-        length=len(temp),
+        temp,
+        norm=mean_aoe * 2000,
+        sample_size=100,
         maximum_number=100000,
     )
 
     logger.info("... plot noise waveforms")
-    fig, ax = hpge_pars.plot_noise_waveforms(noise_wfs, temp, norm=mean_aoe * 2000)
+    fig, ax = hpge_pars.plot_noise_waveforms(noise_sample, temp, norm=mean_aoe * 2000)
     fig.suptitle(f"{hpge} in {runid}: noise waveforms")
     decorate(fig)
     pdf.savefig()
-
-    a_max = hpge_pars.get_waveform_maxima(temp, noise_wfs, norm=mean_aoe * 2000)
+    plt.close(fig)
+    del noise_sample, temp
 
     # now do the plot
     fit_result = hpge_pars.fit_noise_gauss(a_max, bins=1000)
@@ -140,6 +147,7 @@ with PdfPages(plot_file) as pdf:
     fig.suptitle(f"{hpge} in {runid}: noise waveforms fit result")
     decorate(fig)
     pdf.savefig()
+    plt.close(fig)
 
     logger.info("... saving outputs")
     dbetto.utils.write_dict(

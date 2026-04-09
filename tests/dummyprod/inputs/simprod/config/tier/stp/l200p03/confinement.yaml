@@ -1,0 +1,10 @@
+birds_nest:
+  - /RMG/Generator/Confine Volume
+  - /RMG/Generator/Confinement/Physical/AddVolume birds_nest_plate_copper
+
+hpge_bulk:
+  - /RMG/Generator/Confine Volume
+  - /RMG/Generator/Confinement/Physical/AddVolume V.*
+  - /RMG/Generator/Confinement/Physical/AddVolume B.*
+  - /RMG/Generator/Confinement/Physical/AddVolume C.*
+  - /RMG/Generator/Confinement/Physical/AddVolume P.*

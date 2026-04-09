@@ -11,10 +11,17 @@
   instead of `list` or `dict` for function arguments, if appropriate.
 - Prefer `dbetto.AttrsDict` over plain `dict` for non-trivial dictionaries that
   are frequently queried (enables attribute-style access)
-- The `.on()` method from `dbetto.TextDB()` involves filesystem queries and can
-  be slow. Avoid using it repeatedly in functions invoked at Snakemake DAG build
-  time; consider caching strategies instead
+- The `dbetto.TextDB.on()` method involves filesystem queries and can be slow.
+  Avoid using it repeatedly in functions invoked at Snakemake DAG build time.
+  `LegendMetadata.channelmap()` also calls `.on()`. Consider caching strategies
+  instead
 - Other conventions are enforced by pre-commit
+
+## Resource constraints
+
+- Jobs run by Snakemake should not use more than **2 GB of memory** each. The
+  workflow is designed to run many jobs in parallel on a single node, so
+  individual jobs must stay within this budget.
 
 ## Snakemake scripts
 

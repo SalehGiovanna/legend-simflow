@@ -6,8 +6,6 @@ workflow/src/legendsimflow/_version.py
 /simflow-config.yaml
 /generated
 tests/dummyprod/generated
-tests/dummyprod/inputs/hardware/configuration
-tests/dummyprod/inputs/datasets
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
