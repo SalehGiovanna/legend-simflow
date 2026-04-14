@@ -17,17 +17,17 @@ Conventions
 
 Pipeline order (per file, inside the orchestrator loop)
 --------------------------------------------------------
-Steps 1-7 are called once per file inside ``build_superpulse_for_pixel``,
+Steps 1-7 are called once per file inside ``build_superpulse_for_slice``,
 which accumulates results across files until enough waveforms are available.
 
 1. ``read_evt_data``               - read EVT tier for one file (no DSP fields)
 2. ``perform_data_selection``      - quality + PSD cuts on EVT fields only
 3. ``select_detector_events``      - filter to one detector
 4. ``add_dsp_pars_to_evt``         - attach DSP fields for one detector only
-5. ``select_data_in_pixel``        - filter to one energy-drift-time pixel
-6. ``get_charge_and_current_wfs_for_pixel`` - run production DSP chain via
+5. ``select_data_in_slice``        - filter to one energy-drift-time slice
+6. ``get_charge_and_current_wfs_for_slice`` - run production DSP chain via
                                       WaveformBrowser, return aligned charge
-                                      and current waveforms for all pixel events
+                                      and current waveforms for all slice events
 
 Steps 7-11 run once, after enough waveforms have been accumulated:
 
@@ -41,16 +41,9 @@ the orchestrator returns to step 1 and continues reading files from where
 it left off, re-running steps 7-10 on the enlarged accumulated set, until
 either the target is reached or all files are exhausted.
 
-Step 11 runs once per detector, after all pixels are done:
+Step 11 runs once per detector, after all slices are done:
 
-11. ``write_superpulses_to_lh5``   - write all pixels for one detector to LH5
-
-Dependencies
-------------
-- lgdo  
-- awkward
-- numpy 
-- legendmeta
+11. ``write_superpulses_to_lh5``   - write all slices for one detector to LH5
 """
 
 from __future__ import annotations
@@ -71,7 +64,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class Pixel:
+class Slice:
     """
     Defines a 2D slice in the energy-drift-time space.
 
@@ -101,18 +94,18 @@ class Pixel:
 
     def __str__(self) -> str:
         return (
-            f"Pixel(E=[{self.energy_range[0]}, {self.energy_range[1]}] keV, "
+            f"Slice(E=[{self.energy_range[0]}, {self.energy_range[1]}] keV, "
             f"dt=[{self.drift_time_range[0]}, {self.drift_time_range[1]}] ns)"
         )
 
 
 class Superpulse:
     """
-    Holds the average charge and current waveforms for one pixel.
+    Holds the average charge and current waveforms for one slice.
 
-    One ``Superpulse`` instance is produced per pixel per detector, after the
+    One ``Superpulse`` instance is produced per slice per detector, after the
     full preprocessing and chi2 self-similarity cut. It carries both waveforms
-    together with the metadata needed to identify the pixel, write to LH5, and
+    together with the metadata needed to identify the slice, write to LH5, and
     perform the subsequent electronics parameter optimisation.
 
     Parameters
@@ -128,8 +121,8 @@ class Superpulse:
     time_axis : np.ndarray
         Common time axis in ns, shape ``(n_samples,)``, aligned so that
         ``tp_aoe_max = 0``.
-    pixel : Pixel
-        The energy-drift-time pixel this superpulse represents.
+    slice : Slice
+        The energy-drift-time slice this superpulse represents.
     detector : str
         Detector name, e.g. ``"V03422A"``.
     n_events_preliminary : int
@@ -147,19 +140,19 @@ class Superpulse:
             charge_wf=avg_charge,
             current_wf=avg_current,
             time_axis=t,
-            pixel=Pixel((1500., 2000.), (900., 1100.)),
+            slice=Slice((1500., 2000.), (900., 1100.)),
             detector="V03422A",
             n_events_preliminary=120,
             n_events_final=98,
         )
         sp.charge_wf            # np.ndarray
         sp.current_wf           # np.ndarray
-        sp.pixel.drift_time_center  # 1000.0 ns
+        sp.slice.drift_time_center  # 1000.0 ns
 
-    Use as dict value (Pixel is hashable)::
+    Use as dict value (Slice is hashable)::
 
-        superpulses: dict[Pixel, Superpulse] = {}
-        superpulses[sp.pixel] = sp
+        superpulses: dict[Slice, Superpulse] = {}
+        superpulses[sp.slice] = sp
     """
 
     def __init__(
@@ -167,7 +160,7 @@ class Superpulse:
         charge_wf: np.ndarray,
         current_wf: np.ndarray,
         time_axis: np.ndarray,
-        pixel: Pixel,
+        slice: Slice,
         detector: str,
         n_events_preliminary: int,
         n_events_final: int,
@@ -188,7 +181,7 @@ class Superpulse:
         self.charge_wf = charge_wf
         self.current_wf = current_wf
         self.time_axis = time_axis
-        self.pixel = pixel
+        self.slice = slice
         self.detector = detector
         self.n_events_preliminary = n_events_preliminary
         self.n_events_final = n_events_final
@@ -197,7 +190,7 @@ class Superpulse:
         return (
             f"Superpulse("
             f"detector={self.detector!r}, "
-            f"pixel={self.pixel}, "
+            f"slice={self.slice}, "
             f"n_events={self.n_events_final}/{self.n_events_preliminary}, "
             f"n_samples={len(self.time_axis)})"
         )
@@ -243,7 +236,7 @@ def read_evt_data(
     can reduce the array size before the DSP read in ``add_dsp_pars_to_evt``.
 
     In normal use this is called with a single-element list by the orchestrator
-    ``build_superpulse_for_pixel``, which manages the file loop externally.
+    ``build_superpulse_for_slice``, which manages the file loop externally.
     Passing a multi-file list is supported for testing or interactive use.
 
     Parameters
@@ -372,7 +365,7 @@ def add_dsp_pars_to_evt(
         Mapping from detector name to rawid. Only the entry for ``detector``
         is used.
     fields : list[str]
-        DSP fields to attach, e.g. ``["tp_aoe_max", "cuspEmax", "tp_0_est"]``.
+        DSP fields to attach, e.g. ``["tp_aoe_max", "tp_0_est"]``.
         ``tp_aoe_max`` must be included for ``drift_time`` to be computed.
 
     Returns
@@ -416,15 +409,15 @@ def _read_dsp_field_for_channel(
     raise NotImplementedError
 
 
-def select_data_in_pixel(
+def select_data_in_slice(
     det_evt_data: ak.Array,
-    pixel: Pixel,
+    slice: Slice,
 ) -> ak.Array:
     """
-    Filter single-detector event data to one energy-drift-time pixel.
+    Filter single-detector event data to one energy-drift-time slice.
 
     Called after ``add_dsp_pars_to_evt``, which provides the ``drift_time``
-    and energy (``geds.energy``) fields required for the pixel cuts.
+    and energy (``geds.energy``) fields required for the slice cuts.
 
     The detector filter has already been applied in ``select_detector_events``,
     so this function applies only the energy and drift time bounds.
@@ -434,23 +427,23 @@ def select_data_in_pixel(
     det_evt_data : ak.Array
         Single-detector event data with DSP fields attached, as returned by
         ``add_dsp_pars_to_evt``, shape ``(n_det_events,)``.
-    pixel : Pixel
-        The energy-drift-time pixel to select.
+    slice : Slice
+        The energy-drift-time slice to select.
 
     Returns
     -------
     ak.Array
-        Events within the pixel, shape ``(n_pixel_events,)``.
+        Events within the slice, shape ``(n_slice_events,)``.
     """
     raise NotImplementedError
 
 
 # ---------------------------------------------------------------------------
-# Waveform extraction (one pixel)
+# Waveform extraction (one slice)
 # ---------------------------------------------------------------------------
 
 
-def get_charge_and_current_wfs_for_pixel(
+def get_charge_and_current_wfs_for_slice(
     raw_file: Path | str,
     lh5_group: str,
     indices: list[int],
@@ -460,7 +453,7 @@ def get_charge_and_current_wfs_for_pixel(
     align: str = "tp_aoe_max",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Extract aligned charge and current waveforms for a set of pixel events,
+    Extract aligned charge and current waveforms for a set of slice events,
     using the production DSP processing chain via ``WaveformBrowser``.
 
     A single ``WaveformBrowser`` instance is created for the file, with both
@@ -472,7 +465,7 @@ def get_charge_and_current_wfs_for_pixel(
     obtained from ``legendsimflow.hpge_pars.lookup_currmod_fit_inputs``, which
     resolves both from the L200 data production directory given a run ID and
     detector name. The ``indices`` correspond to the raw-tier row indices for
-    the pixel events, which can be derived from the ``raw_wf_pairs`` it
+    the slice events, which can be derived from the ``raw_wf_pairs`` it
     returns.
 
     Parameters
@@ -482,7 +475,7 @@ def get_charge_and_current_wfs_for_pixel(
     lh5_group : str
         HDF5 group containing the waveform table, e.g. ``"ch1084803/raw"``.
     indices : list[int]
-        Raw-tier row indices of the pixel events to extract. These must all
+        Raw-tier row indices of the slice events to extract. These must all
         belong to ``raw_file``. Derived from the ``raw_wf_pairs`` returned by
         ``legendsimflow.hpge_pars.lookup_currmod_fit_inputs``.
     dsp_config : Path or str
@@ -521,8 +514,10 @@ def get_charge_and_current_wfs_for_pixel(
     waveform data is extracted via ``browser.lines[output][0].get_xdata()``
     and ``.get_ydata()``.
 
-    Events for which the browser returns NaN-valued waveforms (e.g. due to
-    invalid ``cuspEmax``) are dropped. The returned arrays contain only valid events.
+    The normalization parameter ``cuspEmax`` is evaluated on the fly by the 
+    DSP chain alongside the requested waveforms.
+    Events for which the browser returns NaN-valued waveforms are dropped. 
+    The returned arrays contain only valid events.
 
     Raises
     ------
@@ -535,7 +530,7 @@ def get_charge_and_current_wfs_for_pixel(
     raise NotImplementedError
 
 # ---------------------------------------------------------------------------
-# Superpulse computation (one pixel)
+# Superpulse computation (one slice)
 # ---------------------------------------------------------------------------
 
 
@@ -543,14 +538,14 @@ def compute_superpulse(
     common_times: np.ndarray,
     charge_wfs: np.ndarray,
     current_wfs: np.ndarray,
-    pixel: Pixel,
+    slice: Slice,
     detector: str,
     n_events_preliminary: int,
 ) -> Superpulse:
     """
-    Compute the average charge and current waveforms for one pixel.
+    Compute the average charge and current waveforms for one slice.
 
-    Called twice per pixel: once on all preprocessed waveforms (preliminary
+    Called twice per slice: once on all preprocessed waveforms (preliminary
     superpulse), and once on the golden subset after ``apply_chi2_cut``
     (final superpulse).
 
@@ -562,8 +557,8 @@ def compute_superpulse(
         2D array of shape ``(n_events, n_samples)``.
     current_wfs : np.ndarray
         2D array of shape ``(n_events, n_samples)``.
-    pixel : Pixel
-        The pixel this superpulse belongs to.
+    slice : Slice
+        The slice this superpulse belongs to.
     detector : str
         Detector name.
     n_events_preliminary : int
@@ -590,8 +585,7 @@ def compute_chi2_vs_superpulse(
     Compute the reduced chi-squared of each charge waveform vs the superpulse.
 
     The noise sigma is estimated from the standard deviation of each waveform
-    in the baseline region (``superpulse.time_axis < 0``, i.e. before
-    ``tp_aoe_max``). A separate sigma is estimated for the superpulse from
+    in the baseline region. A separate sigma is estimated for the superpulse from
     the same region and added in quadrature.
 
     Parameters
@@ -602,7 +596,7 @@ def compute_chi2_vs_superpulse(
         Preliminary superpulse from ``compute_superpulse``.
     baseline_region_mask : np.ndarray or None, optional
         Boolean mask of shape ``(n_samples,)`` selecting the baseline region.
-        If ``None``, derived from ``superpulse.time_axis < 0``.
+        If ``None``, derived from ``superpulse.time_axis < (0 - drift_time)``. 
 
     Returns
     -------
@@ -619,7 +613,7 @@ def compute_chi2_vs_superpulse(
 
     where ``n_dof = n_samples``. The use of the baseline region for sigma
     estimation is a practical approximation; a more principled approach would
-    use an independent noise measurement. This is a known limitation.
+    use an independent noise measurement. 
     """
     raise NotImplementedError
 
@@ -654,7 +648,7 @@ def apply_chi2_cut(
     golden_indices : np.ndarray
         1D integer array of shape ``(n_golden,)`` with the indices of
         surviving events in the input arrays. Retained for traceability
-        back to the original ``pixel_data_with_wfs``.
+        back to the original ``slice_data_with_wfs``.
     """
     raise NotImplementedError
 
@@ -664,8 +658,8 @@ def apply_chi2_cut(
 # ---------------------------------------------------------------------------
 
 
-def build_superpulse_for_pixel(
-    pixel: Pixel,
+def build_superpulse_for_slice(
+    slice: Slice,
     detector: str,
     tab_map: dict[str, int],
     evt_files: list[str],
@@ -680,7 +674,7 @@ def build_superpulse_for_pixel(
     align: str = "tp_aoe_max",
 ) -> Superpulse:
     """
-    Build the final superpulse for one pixel using an adaptive two-phase loop.
+    Build the final superpulse for one slice using an adaptive two-phase loop.
 
     This is the main entry point for superpulse construction. It manages the
     file loop and the two-phase adaptive strategy:
@@ -708,8 +702,8 @@ def build_superpulse_for_pixel(
 
     Parameters
     ----------
-    pixel : Pixel
-        The energy-drift-time pixel to process.
+    slice : Slice
+        The energy-drift-time slice to process.
     detector : str
         Name of the target detector, e.g. ``"V03422A"``.
     tab_map : dict[str, int]
@@ -727,8 +721,7 @@ def build_superpulse_for_pixel(
         ``dsp_cfg_file`` by
         ``legendsimflow.hpge_pars.lookup_currmod_fit_inputs``.
     dsp_fields : list[str]
-        DSP fields to attach to events via ``add_dsp_pars_to_evt``, e.g.
-        ``["tp_aoe_max", "cuspEmax", "tp_0_est"]``.
+        DSP fields to attach to events via ``add_dsp_pars_to_evt``.
         ``tp_aoe_max`` must be included.
     n_target_wfs : int, optional
         Target number of golden waveforms (after chi2 cut) for the final
@@ -737,13 +730,13 @@ def build_superpulse_for_pixel(
         Reduced chi-squared threshold for the self-similarity cut. Default 3.0.
     charge_output : str, optional
         DSP output name for the charge waveform. Default ``"wf_blsub"``.
-        Passed to ``get_charge_and_current_wfs_for_pixel``.
+        Passed to ``get_charge_and_current_wfs_for_slice``.
     current_output : str, optional
         DSP output name for the current waveform. Default ``"curr_av"``.
-        Passed to ``get_charge_and_current_wfs_for_pixel``.
+        Passed to ``get_charge_and_current_wfs_for_slice``.
     align : str, optional
         DSP parameter used for waveform alignment. Default ``"tp_aoe_max"``.
-        Passed to ``get_charge_and_current_wfs_for_pixel``.
+        Passed to ``get_charge_and_current_wfs_for_slice``.
 
     Returns
     -------
@@ -755,7 +748,7 @@ def build_superpulse_for_pixel(
     Raises
     ------
     ValueError
-        If no waveforms are found in the pixel across all files.
+        If no waveforms are found in the slice across all files.
     RuntimeError
         If ``evt_files``, ``dsp_files``, and ``raw_files`` have different
         lengths.
@@ -775,17 +768,17 @@ def build_superpulse_for_pixel(
 
 
 # ---------------------------------------------------------------------------
-# Output: all pixels, one detector
+# Output: all slices, one detector
 # ---------------------------------------------------------------------------
 
 
 def write_superpulses_to_lh5(
-    superpulses: dict[Pixel, Superpulse],
+    superpulses: dict[Slice, Superpulse],
     output_path: str,
     detector: str,
 ) -> None:
     """
-    Write all per-pixel superpulses for one detector to a single LH5 file.
+    Write all per-slice superpulses for one detector to a single LH5 file.
 
     Iterates over ``superpulses``, calls ``Superpulse.to_lgdo()`` for each,
     and writes the result as a named group inside the file.
@@ -808,9 +801,9 @@ def write_superpulses_to_lh5(
 
     Parameters
     ----------
-    superpulses : dict[Pixel, Superpulse]
-        Dictionary mapping each pixel to its final superpulse, as accumulated
-        in the per-pixel processing loop.
+    superpulses : dict[Slice, Superpulse]
+        Dictionary mapping each slice to its final superpulse, as accumulated
+        in the per-slice processing loop.
     output_path : str
         Path to the output LH5 file, e.g.
         ``"output/V03422A_superpulses.lh5"``.
