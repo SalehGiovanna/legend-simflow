@@ -1,18 +1,18 @@
-"""Tests for legendsimflow.superpulses
+"""Tests for legendsimflow.superpulses.
 
 Covered functions
 -----------------
-- Slice                         
-- Superpulse.__init__           
+- Slice
+- Superpulse.__init__
 - Superpulse.__repr__
 - Superpulse.to_lgdo
-- perform_data_selection        
-- select_detector_events        
-- select_data_in_slice          
-- compute_superpulse            
-- compute_chi2_vs_superpulse    
-- apply_chi2_cut                
-- write_superpulses_to_lh5     
+- perform_data_selection
+- select_detector_events
+- select_data_in_slice
+- compute_superpulse
+- compute_chi2_vs_superpulse
+- apply_chi2_cut
+- write_superpulses_to_lh5
 
 """
 
@@ -38,10 +38,10 @@ from legendsimflow.superpulses import (
     write_superpulses_to_lh5,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers / shared fixtures
 # ---------------------------------------------------------------------------
+
 
 def _make_superpulse(
     n_charge=100,
@@ -84,8 +84,7 @@ def _make_evt_data(
     first_t0=200.0,
 ):
     """
-    Build a minimal mock EVT awkward array matching the field paths used by
-    perform_data_selection, select_detector_events, and select_data_in_slice.
+    Build a minimal mock EVT awkward array.
 
     All per-detector arrays are wrapped in a length-1 inner dimension to
     reproduce the multiplicity==1 guarantee of the real EVT tier.
@@ -139,8 +138,10 @@ def test_slice_properties():
 def test_slice_str():
     sl = Slice((1500.0, 2000.0), (900.0, 1100.0))
     s = str(sl)
-    assert "1500" in s and "2000" in s
-    assert "900" in s and "1100" in s
+    assert "1500" in s
+    assert "2000" in s
+    assert "900" in s
+    assert "1100" in s
 
 
 def test_slice_is_hashable():
@@ -264,8 +265,16 @@ def test_to_lgdo_array_types():
 def test_to_lgdo_scalar_types():
     sp = _make_superpulse()
     result = sp.to_lgdo()
-    for key in ("dt_center", "dt_lo", "dt_hi", "e_lo", "e_hi",
-                "detector", "n_events_preliminary", "n_events_final"):
+    for key in (
+        "dt_center",
+        "dt_lo",
+        "dt_hi",
+        "e_lo",
+        "e_hi",
+        "detector",
+        "n_events_preliminary",
+        "n_events_final",
+    ):
         assert isinstance(result[key], LGDOScalar), f"{key} should be LGDOScalar"
 
 
@@ -297,12 +306,8 @@ def test_to_lgdo_time_axis_units():
 def test_to_lgdo_waveform_values():
     sp = _make_superpulse(n_charge=100, n_current=80)
     result = sp.to_lgdo()
-    np.testing.assert_array_equal(
-        result["charge_wf"].view_as("np"), sp.charge_wf
-    )
-    np.testing.assert_array_equal(
-        result["current_wf"].view_as("np"), sp.current_wf
-    )
+    np.testing.assert_array_equal(result["charge_wf"].view_as("np"), sp.charge_wf)
+    np.testing.assert_array_equal(result["current_wf"].view_as("np"), sp.current_wf)
 
 
 # ===========================================================================
@@ -503,8 +508,13 @@ def test_compute_superpulse_returns_superpulse():
     sl = Slice((1500.0, 2000.0), (900.0, 1100.0))
 
     sp = compute_superpulse(
-        charge_times, current_times, charge_wfs, current_wfs,
-        sl, "V03422A", n_events,
+        charge_times,
+        current_times,
+        charge_wfs,
+        current_wfs,
+        sl,
+        "V03422A",
+        n_events,
     )
     assert isinstance(sp, Superpulse)
 
@@ -519,8 +529,13 @@ def test_compute_superpulse_shape():
     sl = Slice((1500.0, 2000.0), (900.0, 1100.0))
 
     sp = compute_superpulse(
-        charge_times, current_times, charge_wfs, current_wfs,
-        sl, "V03422A", n_events,
+        charge_times,
+        current_times,
+        charge_wfs,
+        current_wfs,
+        sl,
+        "V03422A",
+        n_events,
     )
     assert sp.charge_wf.shape == (n_charge,)
     assert sp.current_wf.shape == (n_current,)
@@ -565,10 +580,15 @@ def test_compute_superpulse_metadata():
     sl = Slice((1500.0, 2000.0), (900.0, 1100.0))
 
     sp = compute_superpulse(
-        times, times, charge_wfs, charge_wfs, sl, "V03422A",
+        times,
+        times,
+        charge_wfs,
+        charge_wfs,
+        sl,
+        "V03422A",
         n_events_preliminary=20,  # preliminary count passed separately
     )
-    assert sp.n_events_final == n_events       # shape[0] of the input array
+    assert sp.n_events_final == n_events  # shape[0] of the input array
     assert sp.n_events_preliminary == 20
     assert sp.detector == "V03422A"
     assert sp.slice is sl
@@ -668,9 +688,7 @@ def test_compute_chi2_identical_waveforms_is_small():
     # Use a realistic noise level so the chi2 is well-defined
     bl_std = np.ones(n_events) * 2.0
     cuspEmax = np.ones(n_events) * 1000.0
-    chi2 = compute_chi2_vs_superpulse(
-        charge_wfs, sp, bl_std=bl_std, cuspEmax=cuspEmax
-    )
+    chi2 = compute_chi2_vs_superpulse(charge_wfs, sp, bl_std=bl_std, cuspEmax=cuspEmax)
     assert np.all(chi2 < 1e-6)
 
 
@@ -749,7 +767,7 @@ def test_apply_chi2_cut_all_pass():
     charge_wfs = rng.random((n_events, 50))
     current_wfs = rng.random((n_events, 50))
 
-    golden_charge, golden_current, golden_idx = apply_chi2_cut(
+    _golden_charge, _golden_current, golden_idx = apply_chi2_cut(
         charge_wfs, current_wfs, chi2, threshold=3.0
     )
     assert len(golden_idx) == n_events
@@ -780,8 +798,8 @@ def test_apply_chi2_cut_custom_threshold():
     _, _, idx_tight = apply_chi2_cut(charge_wfs, current_wfs, chi2, threshold=2.5)
     _, _, idx_loose = apply_chi2_cut(charge_wfs, current_wfs, chi2, threshold=4.5)
 
-    assert len(idx_tight) == 2   # chi2 < 2.5: events 0 and 1
-    assert len(idx_loose) == 4   # chi2 < 4.5: events 0, 1, 2, 3
+    assert len(idx_tight) == 2  # chi2 < 2.5: events 0 and 1
+    assert len(idx_loose) == 4  # chi2 < 4.5: events 0, 1, 2, 3
 
 
 # ===========================================================================
@@ -811,7 +829,8 @@ def test_write_superpulses_lh5_structure(tmp_path):
 
 def test_write_superpulses_lh5_field_values(tmp_path):
     sp = _make_superpulse(
-        n_charge=100, n_current=80,
+        n_charge=100,
+        n_current=80,
         drift_time_range=(900.0, 1100.0),
         energy_range=(1500.0, 2000.0),
         n_preliminary=50,
@@ -822,12 +841,8 @@ def test_write_superpulses_lh5_field_values(tmp_path):
 
     result = lh5.read("V03422A/dt_900_1100_ns", output_path)
 
-    np.testing.assert_array_equal(
-        result["charge_wf"].view_as("np"), sp.charge_wf
-    )
-    np.testing.assert_array_equal(
-        result["current_wf"].view_as("np"), sp.current_wf
-    )
+    np.testing.assert_array_equal(result["charge_wf"].view_as("np"), sp.charge_wf)
+    np.testing.assert_array_equal(result["current_wf"].view_as("np"), sp.current_wf)
     assert result["dt_center"].value == pytest.approx(1000.0)
     assert result["e_lo"].value == pytest.approx(1500.0)
     assert result["e_hi"].value == pytest.approx(2000.0)
@@ -842,9 +857,7 @@ def test_write_superpulses_multiple_slices(tmp_path):
     sp2 = _make_superpulse(drift_time_range=(1100.0, 1300.0))
 
     output_path = str(tmp_path / "multi.lh5")
-    write_superpulses_to_lh5(
-        {sl1: sp1, sl2: sp2}, output_path, detector="V03422A"
-    )
+    write_superpulses_to_lh5({sl1: sp1, sl2: sp2}, output_path, detector="V03422A")
 
     # Both groups must be present
     result1 = lh5.read("V03422A/dt_900_1100_ns", output_path)
