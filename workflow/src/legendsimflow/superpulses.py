@@ -5,43 +5,9 @@ This is an important step in tuning the pulse shape discrimination (PSD) simulat
 
 Conventions
 -----------
-- All event-level data is handled as ``ak.Array`` (awkward-array).
-- Waveform data on disk is read via ``lgdo.lh5.read()`` and converted to
-  ``ak.Array`` for in-memory processing.
-- All times are in nanoseconds unless otherwise stated.
-- All energies are in keV unless otherwise stated.
+- All times are in nanoseconds and energies in keV unless otherwise stated.
 - The ``tab_map`` convention follows the format:
   ``{detector_name: rawid}`` e.g. ``{"V03422A": 1084803}``
-
-Pipeline order (per file, inside the orchestrator loop)
---------------------------------------------------------
-Steps 1-7 are called once per file inside ``build_superpulse_for_slice``,
-which accumulates results across files until enough waveforms are available.
-
-1. ``read_evt_data``               - read EVT tier for one file (no DSP fields)
-2. ``perform_data_selection``      - quality + PSD cuts on EVT fields only
-3. ``select_detector_events``      - filter to one detector
-4. ``add_dsp_pars_to_evt``         - attach DSP fields for one detector only
-5. ``select_data_in_slice``        - filter to one energy-drift-time slice
-6. ``get_charge_and_current_wfs_for_slice`` - run production DSP chain via
-                                      WaveformBrowser, return aligned charge
-                                      and current waveforms for all slice events
-
-Steps 7-11 run once, after enough waveforms have been accumulated:
-
-7.  ``compute_superpulse``          - preliminary average (charge + current)
-8.  ``compute_chi2_vs_superpulse``  - reduced chi2 of each wf vs superpulse
-9.  ``apply_chi2_cut``              - retain golden waveforms only
-10. ``compute_superpulse``          - final average on golden waveforms
-
-If after step 9 the number of golden waveforms is below ``n_target_wfs``,
-the orchestrator returns to step 1 and continues reading files from where
-it left off, re-running steps 7-10 on the enlarged accumulated set, until
-either the target is reached or all files are exhausted.
-
-Step 11 runs once per detector, after all slices are done:
-
-11. ``write_superpulses_to_lh5``   - write all slices for one detector to LH5
 """
 
 from __future__ import annotations
@@ -52,10 +18,7 @@ from pathlib import Path
 
 import awkward as ak
 import numpy as np
-from lgdo import Array as LGDOArray
-from lgdo import Scalar as LGDOScalar
-from lgdo import Struct as LGDOStruct
-from lgdo import lh5
+from lgdo import Array, Scalar, Struct, lh5
 
 log = logging.getLogger(__name__)
 
@@ -214,52 +177,44 @@ class Superpulse:
         self,
     ):  ### Is this the best way to implement it? Can I use lgdo functions directly?
         """
-        Serialise to an ``lgdo.Struct`` ready for writing to LH5.
+        Serialise to an ``Struct`` ready for writing to LH5.
 
         Returns
         -------
-        lgdo.Struct
+        Struct
             Struct with the following fields:
 
-            - ``charge_wf``            : ``lgdo.Array``, shape ``(n_charge_samples,)``
-            - ``current_wf``           : ``lgdo.Array``, shape ``(n_current_samples,)``
-            - ``charge_time_axis``     : ``lgdo.Array``, shape ``(n_charge_samples,)``,
-              attrs ``{"units": "ns"}``
-            - ``current_time_axis``    : ``lgdo.Array``, shape ``(n_current_samples,)``,
-              attrs ``{"units": "ns"}``
-            - ``dt_center``            : ``lgdo.Scalar``, drift time center [ns]
-            - ``dt_lo``                : ``lgdo.Scalar``, drift time lower bound [ns]
-            - ``dt_hi``                : ``lgdo.Scalar``, drift time upper bound [ns]
-            - ``e_lo``                 : ``lgdo.Scalar``, energy lower bound [keV]
-            - ``e_hi``                 : ``lgdo.Scalar``, energy upper bound [keV]
-            - ``detector``             : ``lgdo.Scalar``, detector name string
-            - ``n_events_preliminary`` : ``lgdo.Scalar``
-            - ``n_events_final``       : ``lgdo.Scalar``
+            - ``charge_wf``            : ``Array``, shape ``(n_charge_samples,)``
+            - ``current_wf``           : ``Array``, shape ``(n_current_samples,)``
+            - ``charge_time_axis``     : ``Array``, shape ``(n_charge_samples,)``, attrs ``{"units": "ns"}``
+            - ``current_time_axis``    : ``Array``, shape ``(n_current_samples,)``, attrs ``{"units": "ns"}``
+            - ``dt_center``            : ``Scalar``, drift time center [ns]
+            - ``dt_lo``                : ``Scalar``, drift time lower bound [ns]
+            - ``dt_hi``                : ``Scalar``, drift time upper bound [ns]
+            - ``e_lo``                 : ``Scalar``, energy lower bound [keV]
+            - ``e_hi``                 : ``Scalar``, energy upper bound [keV]
+            - ``detector``             : ``Scalar``, detector name string
+            - ``n_events_preliminary`` : ``Scalar``
+            - ``n_events_final``       : ``Scalar``
         """
-        return LGDOStruct(
+        return Struct(
             {
-                "charge_wf": LGDOArray(self.charge_wf),
-                "current_wf": LGDOArray(self.current_wf),
-                "charge_time_axis": LGDOArray(
-                    self.charge_time_axis, attrs={"units": "ns"}
-                ),
-                "current_time_axis": LGDOArray(
+                "charge_wf": Array(self.charge_wf),
+                "current_wf": Array(self.current_wf),
+                "charge_time_axis": Array(self.charge_time_axis, attrs={"units": "ns"}),
+                "current_time_axis": Array(
                     self.current_time_axis, attrs={"units": "ns"}
                 ),
-                "dt_center": LGDOScalar(
+                "dt_center": Scalar(
                     self.slice.drift_time_center, attrs={"units": "ns"}
                 ),
-                "dt_lo": LGDOScalar(
-                    self.slice.drift_time_range[0], attrs={"units": "ns"}
-                ),
-                "dt_hi": LGDOScalar(
-                    self.slice.drift_time_range[1], attrs={"units": "ns"}
-                ),
-                "e_lo": LGDOScalar(self.slice.energy_range[0], attrs={"units": "keV"}),
-                "e_hi": LGDOScalar(self.slice.energy_range[1], attrs={"units": "keV"}),
-                "detector": LGDOScalar(self.detector),
-                "n_events_preliminary": LGDOScalar(self.n_events_preliminary),
-                "n_events_final": LGDOScalar(self.n_events_final),
+                "dt_lo": Scalar(self.slice.drift_time_range[0], attrs={"units": "ns"}),
+                "dt_hi": Scalar(self.slice.drift_time_range[1], attrs={"units": "ns"}),
+                "e_lo": Scalar(self.slice.energy_range[0], attrs={"units": "keV"}),
+                "e_hi": Scalar(self.slice.energy_range[1], attrs={"units": "keV"}),
+                "detector": Scalar(self.detector),
+                "n_events_preliminary": Scalar(self.n_events_preliminary),
+                "n_events_final": Scalar(self.n_events_final),
             }
         )
 
@@ -269,83 +224,43 @@ class Superpulse:
 # ---------------------------------------------------------------------------
 
 
-def read_evt_data(  ### Can / should this be merge with the data selection function? Code here is trivial
-    evt_files: list[str],
-) -> ak.Array:
-    """
-    Read EVT-tier LH5 files into a single concatenated awkward array.
-
-    No DSP fields are attached here. This is intentionally a lightweight
-    read so that ``perform_data_selection`` and ``select_detector_events``
-    can reduce the array size before the DSP read in ``add_dsp_pars_to_evt``.
-
-    In normal use this is called with a single-element list by the orchestrator
-    ``build_superpulse_for_slice``, which manages the file loop externally.
-    Passing a multi-file list is supported for testing or interactive use.
-
-    Parameters
-    ----------
-    evt_files : list[str]
-        Paths to one or more EVT-tier LH5 files. Results are concatenated
-        along the event axis.
-
-    Returns
-    -------
-    ak.Array
-        Concatenated EVT data with shape ``(n_events,)``.
-    """
-    evt_arrays = []
-    for evt_file in evt_files:
-        evt_arrays.append(lh5.read_as("evt/", evt_file, library="ak"))
-
-    if len(evt_arrays) == 1:
-        return evt_arrays[0]
-    return ak.concatenate(evt_arrays)
-
-
-def perform_data_selection(
-    evt_data: ak.Array,
+def read_and_selection_evt_data(
+    evt_files: str | list[str],
     aoe_low_threshold: float = -3.0,
     aoe_high_threshold: float = 3.0,
 ) -> ak.Array:
-    """
-    Apply quality and PSD cuts to retain only valid single-site events.
+    """Read EVT-tier LH5 file(s) and apply quality and PSD cuts.
 
-    Two sequential sets of cuts are applied:
-
-    1. Preliminary cuts: forced triggers, pulser events, muon coincidences
-       (online and offline), bad channel quality, failing QC, multiplicity > 1,
-       and insufficient LAr light (``spms.energy_sum <= 10``).
-
-    2. PSD cuts: A/E lower and upper bounds on ``geds.psd.low_aoe.value``
-       and ``geds.psd.high_aoe.value``. These cuts are needed to prevent
-       the preliminary superpulse from being too contaminated for the subsequent
-       chi2 self-similarity cut to be meaningful.
+    Only the fields needed for event selection are read.
 
     Parameters
     ----------
-    evt_data : ak.Array
-        EVT data as returned by ``read_evt_data``.
-    aoe_low_threshold : float, optional
-        Lower bound on ``geds.psd.low_aoe.value``. Default: ``-3.0``.
-    aoe_high_threshold : float, optional
-        Upper bound on ``geds.psd.high_aoe.value``. Default: ``3.0``.
+    evt_files
+        Path to one or more EVT-tier LH5 files.
+    aoe_low_threshold
+        Lower bound on ``geds.psd.low_aoe.value``. Default ``-3.0``.
+    aoe_high_threshold
+        Upper bound on ``geds.psd.high_aoe.value``. Default ``3.0``.
 
     Returns
     -------
     ak.Array
-        Filtered event data with the same structure as the input.
-
-    Notes
-    -----
-    The ``multiplicity == 1`` cut guarantees that all downstream ``geds.*``
-    arrays have exactly one entry per event, simplifying all downstream
-    indexing.
+        Filtered event data passing all quality and PSD cuts.
     """
-    n_before = len(evt_data)
+    evt_data = lh5.read_as(
+        "evt",
+        evt_files,
+        library="ak",
+        field_mask=[
+            "geds",
+            "coincident",
+            "trigger",
+            "spms/energy_sum",
+            "spms/first_t0",
+        ],
+    )
 
-    # Preliminary cuts
-    preliminary_mask = (
+    mask = (
         ak.all(evt_data.geds.quality.is_good_channel, axis=-1)
         & ~evt_data.trigger.is_forced
         & ~evt_data.coincident.puls
@@ -353,34 +268,25 @@ def perform_data_selection(
         & ~evt_data.coincident.muon_offline
         & evt_data.geds.quality.is_bb_like
         & (evt_data.geds.multiplicity == 1)
-        & (
-            evt_data.spms.energy_sum > 10
-        )  ### Is this actually needed? If not I could drop the spms entirely when reading evt files!
+        & (evt_data.spms.energy_sum > 10)
     )
-    evt_data = evt_data[preliminary_mask]
+    evt_data = evt_data[mask]
 
-    n_after_preliminary = len(evt_data)
-    log.debug("preliminary cuts: %d -> %d events", n_before, n_after_preliminary)
-
-    # PSD cuts
     psd_mask = ak.all(
         evt_data.geds.psd.low_aoe.value > aoe_low_threshold, axis=-1
     ) & ak.all(evt_data.geds.psd.high_aoe.value < aoe_high_threshold, axis=-1)
-    evt_data = evt_data[psd_mask]
 
-    log.debug("PSD cuts: %d -> %d events", n_after_preliminary, len(evt_data))
-    return evt_data
+    return evt_data[psd_mask]
 
 
 def select_detector_events(
     evt_data: ak.Array,
     detector: str,
-    tab_map: dict[str, int],
 ) -> ak.Array:
     """
     Filter event data to only events from a single detector.
 
-    Called after ``perform_data_selection`` and before
+    Called after ``read_and_select_evt_data`` and before
     ``add_dsp_pars_to_evt``, so that the DSP read operates on the smallest
     possible array.
 
@@ -390,28 +296,19 @@ def select_detector_events(
         Event data after quality and PSD cuts, shape ``(n_events,)``.
     detector : str
         Name of the target detector, e.g. ``"V03422A"``.
-    tab_map : dict[str, int]
-        Mapping from detector name to rawid.
 
     Returns
     -------
     ak.Array
         Filtered event data containing only events where
-        ``geds.rawid == tab_map[detector]``, shape ``(n_det_events,)``.
-
-    Raises
-    ------
-    KeyError
-        If ``detector`` is not found in ``tab_map``.
+        ``geds.detector_name == detector``, shape ``(n_det_events,)``.
     """
-    rawid = tab_map[detector]  # raises KeyError if missing
-    mask = ak.any(evt_data.geds.rawid == rawid, axis=-1)
+    mask = ak.any(evt_data.geds.detector_name == detector, axis=-1)
     det_evt_data = evt_data[mask]
 
     log.debug(
-        "detector %s (rawid %d): %d -> %d events",
+        "detector %s: %d -> %d events",
         detector,
-        rawid,
         len(evt_data),
         len(det_evt_data),
     )
@@ -444,8 +341,6 @@ def add_dsp_pars_to_evt(
         DSP-tier LH5 file path, corresponding to the same run segment as the
         EVT file used to produce ``det_evt_data``. Must be a single file
         because ``hit_idx`` values are row indices into this specific file.
-    detector : str
-        Name of the target detector, e.g. ``"V03422A"``.
     tab_map : dict[str, int]
         Mapping from detector name to rawid. Only the entry for ``detector``
         is used.
@@ -611,7 +506,7 @@ def get_charge_and_current_wfs_for_slice(  ### Check entire function
     np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None
 ]:
     """
-    Extract aligned charge and current waveforms for a set of slice events, using the production DSP processing chain via ``WaveformBrowser``.
+    Extract aligned charge and current waveforms for a set of slice events, using the DSP processing chain via ``WaveformBrowser``.
 
     A single ``WaveformBrowser`` instance is created for the file, with both
     ``charge_output`` and ``current_output`` requested as ``lines``. The full
@@ -1144,14 +1039,11 @@ def build_superpulse_for_slice(
                 len(evt_files),
             )
 
-            # read EVT data for one file
-            evt_data = read_evt_data([evt_files[file_idx]])
-
-            # quality + PSD cuts
-            evt_data = perform_data_selection(evt_data)
+            # read EVT data for one file + apply quality and PSD cuts
+            evt_data = read_and_selection_evt_data(evt_files[file_idx])
 
             # filter to target detector
-            det_data = select_detector_events(evt_data, detector, tab_map)
+            det_data = select_detector_events(evt_data, detector)
 
             if len(det_data) == 0:
                 log.debug("file %d: no events for %s after cuts", file_idx, detector)
@@ -1162,7 +1054,6 @@ def build_superpulse_for_slice(
             det_data = add_dsp_pars_to_evt(
                 det_data,
                 dsp_files[file_idx],
-                detector,
                 tab_map,
                 dsp_fields,
             )
