@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
-def lookup_superpulse_inputs( ### I will move this to the superpulses module or to a utility module if the content is ok
+def lookup_superpulse_inputs(  ### I will move this to the superpulses module or to a utility module if the content is ok
     l200data: str | Path,
     metadata: LegendMetadata,
     runid: str,

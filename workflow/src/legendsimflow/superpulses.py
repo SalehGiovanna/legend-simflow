@@ -224,7 +224,7 @@ class Superpulse:
 # ---------------------------------------------------------------------------
 
 
-def read_and_selection_evt_data(
+def read_and_select_evt_data(
     evt_files: str | list[str],
     aoe_low_threshold: float = -3.0,
     aoe_high_threshold: float = 3.0,
@@ -668,15 +668,23 @@ def get_charge_and_current_wfs_for_slice(  ### Check entire function
             current_times, this_current_x, current_y, left=np.nan, right=np.nan
         )
 
-        charge_list.append(charge_y_aligned)
-        current_list.append(current_y_aligned)
-
         bl_std_vals = browser.legend_vals.get("bl_std", [])
         cuspEmax_vals = browser.legend_vals.get("cuspEmax", [])
-        if bl_std_vals:
-            bl_std_list.append(float(bl_std_vals[0].magnitude))
-        if cuspEmax_vals:
-            cuspEmax_list.append(float(cuspEmax_vals[0].magnitude))
+
+        if not bl_std_vals or not cuspEmax_vals:
+            log.debug(
+                "entry %d (row %d): missing legend values (bl_std=%s, cuspEmax=%s), skipping",
+                local_idx,
+                indices[local_idx],
+                bool(bl_std_vals),
+                bool(cuspEmax_vals),
+            )
+            continue
+
+        charge_list.append(charge_y_aligned)
+        current_list.append(current_y_aligned)
+        bl_std_list.append(float(bl_std_vals[0].magnitude))
+        cuspEmax_list.append(float(cuspEmax_vals[0].magnitude))
 
     if not charge_list:
         msg = f"no valid waveforms found in {raw_file} for {len(indices)} indices"
@@ -785,7 +793,7 @@ def compute_chi2_vs_superpulse(
     baseline_region_mask : np.ndarray or None, optional
         Boolean mask of shape ``(n_samples,)`` selecting the baseline region.
         If ``None``, derived from
-        ``superpulse.time_axis < -superpulse.slice.drift_time_range[1]``.
+        ``superpulse.charge_time_axis < -superpulse.slice.drift_time_range[1]``.
         Only used in fallback mode.
     bl_std : np.ndarray or None, optional
         Per-event baseline standard deviation in ADC units, shape
@@ -836,8 +844,17 @@ def compute_chi2_vs_superpulse(
                 "provide bl_std and cuspEmax from the DSP chain, or pass an explicit baseline_region_mask"
             )
             raise ValueError(msg)
-        sigma_wfs = np.std(charge_wfs[:, baseline_region_mask], axis=1)  # (n_events,)
-        sigma_sp = np.std(sp_wf[baseline_region_mask])
+        sigma_wfs = np.nanstd(
+            charge_wfs[:, baseline_region_mask], axis=1
+        )  # (n_events,)
+        sigma_sp = np.nanstd(sp_wf[baseline_region_mask])
+        if not np.all(np.isfinite(sigma_wfs)) or not np.isfinite(sigma_sp):
+            msg = (
+                "baseline noise estimation produced non-finite values; "
+                "ensure the baseline_region_mask includes finite samples, "
+                "or provide bl_std and cuspEmax from the DSP chain"
+            )
+            raise ValueError(msg)
 
     # Vectorised chi2: residuals shape (n_events, n_samples), sigma_wfs broadcast from (n_events, 1)
     residuals_sq = (charge_wfs - sp_wf[np.newaxis, :]) ** 2
@@ -905,7 +922,7 @@ def build_superpulse_for_slice(
     dsp_fields: list[str],
     n_target_wfs: int = 100,
     chi2_threshold: float = 3.0,
-    charge_output: str = "wf_av",
+    charge_output: str = "wf_blsub",
     current_output: str = "curr_av",
     align: str = "tp_aoe_max",
 ) -> Superpulse:
@@ -1009,6 +1026,13 @@ def build_superpulse_for_slice(
         raise RuntimeError(msg)
 
     # Construct the raw-tier LH5 group from the rawid
+    if detector not in tab_map:
+        available_detectors = ", ".join(sorted(map(str, tab_map)))
+        msg = (
+            f"unknown detector {detector!r}; not found in tab_map. "
+            f"Available detectors: [{available_detectors}]"
+        )
+        raise KeyError(msg)
     rawid = tab_map[detector]
     lh5_group = f"ch{rawid}/raw"
 
@@ -1040,7 +1064,7 @@ def build_superpulse_for_slice(
             )
 
             # read EVT data for one file + apply quality and PSD cuts
-            evt_data = read_and_selection_evt_data(evt_files[file_idx])
+            evt_data = read_and_select_evt_data(evt_files[file_idx])
 
             # filter to target detector
             det_data = select_detector_events(evt_data, detector)
